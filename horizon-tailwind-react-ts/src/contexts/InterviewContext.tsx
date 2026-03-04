@@ -2,10 +2,20 @@ import React, { createContext, useContext, useState, useCallback } from "react";
 
 type InterviewStep = "upload" | "interview" | "results";
 
+// shape of each question coming from the backend
+interface Question {
+  id: number;
+  category: string;
+  question: string;
+}
+
 interface InterviewState {
   fileName: string | null;
   currentStep: InterviewStep;
   answers: Record<number, string>;
+  predictedCategory: string | null;
+  resumeSnippet: string | null;
+  questions: Question[];
 }
 
 interface InterviewContextType extends InterviewState {
@@ -14,6 +24,11 @@ interface InterviewContextType extends InterviewState {
   submitInterview: () => void;
   resetInterview: () => void;
   goToInterview: () => void;
+  setBackendData: (data: {
+    predicted_category: string;
+    resume_snippet: string;
+    questions: Question[];
+  }) => void;
 }
 
 const InterviewContext = createContext<InterviewContextType | undefined>(
@@ -27,6 +42,9 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
     fileName: null,
     currentStep: "upload",
     answers: {},
+    predictedCategory: null,
+    resumeSnippet: null,
+    questions: [],
   });
 
   const setFile = useCallback((name: string) => {
@@ -39,6 +57,23 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
       answers: { ...prev.answers, [questionId]: answer },
     }));
   }, []);
+
+  // store the response that comes back from /api/upload-resume
+  const setBackendData = useCallback(
+    (data: {
+      predicted_category: string;
+      resume_snippet: string;
+      questions: Question[];
+    }) => {
+      setState((prev) => ({
+        ...prev,
+        predictedCategory: data.predicted_category,
+        resumeSnippet: data.resume_snippet,
+        questions: data.questions,
+      }));
+    },
+    []
+  );
 
   const goToInterview = useCallback(() => {
     setState((prev) => ({ ...prev, currentStep: "interview" }));
@@ -53,6 +88,9 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
       fileName: null,
       currentStep: "upload",
       answers: {},
+      predictedCategory: null,
+      resumeSnippet: null,
+      questions: [],
     });
   }, []);
 
@@ -65,6 +103,7 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
         submitInterview,
         resetInterview,
         goToInterview,
+        setBackendData,
       }}
     >
       {children}

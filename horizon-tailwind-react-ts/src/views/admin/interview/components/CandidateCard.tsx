@@ -1,7 +1,12 @@
 import Card from "components/card";
 import { MdPerson, MdWork, MdStar, MdCode, MdSchool } from "react-icons/md";
+import { useInterview } from "contexts/InterviewContext";
 
 const CandidateCard = () => {
+    const { predictedCategory, resumeSnippet } = useInterview();
+
+    // these would eventually come from the backend analysis as well
+    // TODO: parse skills from the resume text or get them from the CNN pipeline
     const skills = ["React", "TypeScript", "Node.js", "Python", "AWS"];
 
     return (
@@ -27,10 +32,10 @@ const CandidateCard = () => {
                     </div>
                     <div>
                         <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                            Target Role
+                            Predicted Role
                         </p>
                         <p className="text-sm font-bold text-navy-700 dark:text-white">
-                            Frontend Developer
+                            {predictedCategory || "Not analyzed yet"}
                         </p>
                     </div>
                 </div>
@@ -83,6 +88,18 @@ const CandidateCard = () => {
                     ))}
                 </div>
             </div>
+
+            {/* Resume snippet from backend */}
+            {resumeSnippet && (
+                <div className="mt-6 border-t border-gray-200 pt-6 dark:border-white/10">
+                    <p className="mb-2 text-sm font-bold text-navy-700 dark:text-white">
+                        Resume Preview
+                    </p>
+                    <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                        {resumeSnippet}...
+                    </p>
+                </div>
+            )}
         </Card>
     );
 };

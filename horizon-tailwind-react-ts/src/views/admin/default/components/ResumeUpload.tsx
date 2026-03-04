@@ -4,6 +4,8 @@ import { MdCloudUpload, MdInsertDriveFile, MdClose } from "react-icons/md";
 import Card from "components/card";
 import { useInterview } from "contexts/InterviewContext";
 
+const API_BASE_URL = "http://localhost:8000";
+
 const ResumeUpload = () => {
     const [isDragging, setIsDragging] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -11,7 +13,7 @@ const ResumeUpload = () => {
     const [error, setError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const navigate = useNavigate();
-    const { setFile, goToInterview } = useInterview();
+    const { setFile, goToInterview, setBackendData } = useInterview();
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -62,15 +64,49 @@ const ResumeUpload = () => {
 
     const handleAnalyze = async () => {
         if (!selectedFile) return;
+
         setIsAnalyzing(true);
-        setFile(selectedFile.name);
+        setError(null);
 
-        // Simulate analysis delay
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        try {
+            // send the PDF to the FastAPI backend
+            const formData = new FormData();
+            formData.append("file", selectedFile);
 
-        goToInterview();
-        setIsAnalyzing(false);
-        navigate("/admin/interview");
+            const response = await fetch(`${API_BASE_URL}/api/upload-resume`, {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errBody = await response.json().catch(() => null);
+                throw new Error(
+                    errBody?.detail || `Server returned ${response.status}`
+                );
+            }
+
+            const data = await response.json();
+
+            // push everything into shared context so other views can use it
+            setFile(data.filename);
+            setBackendData({
+                predicted_category: data.predicted_category,
+                resume_snippet: data.resume_snippet,
+                questions: data.questions,
+            });
+
+            goToInterview();
+            navigate("/admin/interview");
+        } catch (err: any) {
+            // network errors, backend down, bad PDF, etc.
+            const message =
+                err.message === "Failed to fetch"
+                    ? "Could not reach the backend. Is the FastAPI server running on port 8000?"
+                    : err.message;
+            setError(message);
+        } finally {
+            setIsAnalyzing(false);
+        }
     };
 
     return (
@@ -90,10 +126,10 @@ const ResumeUpload = () => {
                 {/* Drop Zone */}
                 <div
                     className={`relative cursor-pointer rounded-2xl border-2 border-dashed p-12 text-center transition-all duration-300 ${isDragging
-                            ? "border-brand-500 bg-brand-50 dark:border-brand-400 dark:bg-brand-900/20"
-                            : selectedFile
-                                ? "border-green-400 bg-green-50 dark:border-green-500 dark:bg-green-900/10"
-                                : "border-gray-300 bg-gray-50 hover:border-brand-400 hover:bg-brand-50/50 dark:border-gray-600 dark:bg-navy-700 dark:hover:border-brand-400 dark:hover:bg-brand-900/10"
+                        ? "border-brand-500 bg-brand-50 dark:border-brand-400 dark:bg-brand-900/20"
+                        : selectedFile
+                            ? "border-green-400 bg-green-50 dark:border-green-500 dark:bg-green-900/10"
+                            : "border-gray-300 bg-gray-50 hover:border-brand-400 hover:bg-brand-50/50 dark:border-gray-600 dark:bg-navy-700 dark:hover:border-brand-400 dark:hover:bg-brand-900/10"
                         }`}
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
@@ -136,14 +172,14 @@ const ResumeUpload = () => {
                         <div className="flex flex-col items-center gap-4">
                             <div
                                 className={`flex h-20 w-20 items-center justify-center rounded-full transition-all duration-300 ${isDragging
-                                        ? "scale-110 bg-brand-100 dark:bg-brand-900/30"
-                                        : "bg-gray-100 dark:bg-navy-600"
+                                    ? "scale-110 bg-brand-100 dark:bg-brand-900/30"
+                                    : "bg-gray-100 dark:bg-navy-600"
                                     }`}
                             >
                                 <MdCloudUpload
                                     className={`h-10 w-10 transition-colors ${isDragging
-                                            ? "text-brand-500 dark:text-brand-400"
-                                            : "text-gray-400 dark:text-gray-300"
+                                        ? "text-brand-500 dark:text-brand-400"
+                                        : "text-gray-400 dark:text-gray-300"
                                         }`}
                                 />
                             </div>
@@ -178,8 +214,8 @@ const ResumeUpload = () => {
                     onClick={handleAnalyze}
                     disabled={!selectedFile || isAnalyzing}
                     className={`mt-8 flex w-full items-center justify-center gap-2 rounded-xl py-4 text-base font-bold text-white transition-all duration-300 ${selectedFile && !isAnalyzing
-                            ? "bg-brand-500 shadow-lg shadow-brand-500/30 hover:bg-brand-600 hover:shadow-xl hover:shadow-brand-500/40 active:scale-[0.98] dark:bg-brand-400 dark:hover:bg-brand-500"
-                            : "cursor-not-allowed bg-gray-300 dark:bg-gray-600"
+                        ? "bg-brand-500 shadow-lg shadow-brand-500/30 hover:bg-brand-600 hover:shadow-xl hover:shadow-brand-500/40 active:scale-[0.98] dark:bg-brand-400 dark:hover:bg-brand-500"
+                        : "cursor-not-allowed bg-gray-300 dark:bg-gray-600"
                         }`}
                 >
                     {isAnalyzing ? (

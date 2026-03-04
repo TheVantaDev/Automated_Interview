@@ -5,42 +5,10 @@ import CandidateCard from "./components/CandidateCard";
 import QuestionItem from "./components/QuestionItem";
 import { useInterview } from "contexts/InterviewContext";
 
-const questions = [
-    {
-        id: 1,
-        category: "Technical",
-        question:
-            "Explain the difference between `useMemo` and `useCallback` in React. When would you choose one over the other?",
-    },
-    {
-        id: 2,
-        category: "Problem Solving",
-        question:
-            "Given an API that returns paginated data, how would you implement an infinite scroll feature while maintaining good performance?",
-    },
-    {
-        id: 3,
-        category: "System Design",
-        question:
-            "How would you design a real-time collaborative editing system (like Google Docs)? What technologies and patterns would you use?",
-    },
-    {
-        id: 4,
-        category: "Behavioral",
-        question:
-            "Tell me about a time when you had to refactor a large codebase. What was your approach and what were the outcomes?",
-    },
-    {
-        id: 5,
-        category: "Cultural",
-        question:
-            "How do you handle disagreements with team members about technical decisions? Can you give a specific example?",
-    },
-];
-
 const InterviewView = () => {
     const navigate = useNavigate();
-    const { answers, setAnswer, submitInterview, fileName } = useInterview();
+    const { answers, setAnswer, submitInterview, fileName, questions } =
+        useInterview();
 
     const handleSubmit = () => {
         submitInterview();
@@ -50,6 +18,23 @@ const InterviewView = () => {
     const answeredCount = Object.values(answers).filter(
         (a) => a.trim().length > 0
     ).length;
+
+    // edge case: user navigated here directly without uploading
+    if (questions.length === 0) {
+        return (
+            <div className="mt-12 text-center">
+                <p className="text-lg text-gray-500 dark:text-gray-400">
+                    No questions loaded. Please upload a resume first.
+                </p>
+                <button
+                    onClick={() => navigate("/admin/default")}
+                    className="mt-4 rounded-xl bg-brand-500 px-6 py-3 font-bold text-white hover:bg-brand-600"
+                >
+                    Go to Upload
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div className="mt-3">
@@ -79,7 +64,7 @@ const InterviewView = () => {
                     <CandidateCard />
                 </div>
 
-                {/* Right: Questions */}
+                {/* Right: Questions from the backend */}
                 <div className="xl:col-span-8 2xl:col-span-9">
                     <div className="space-y-5">
                         {questions.map((q) => (

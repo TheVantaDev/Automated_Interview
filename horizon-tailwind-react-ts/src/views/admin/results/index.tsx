@@ -63,7 +63,7 @@ const scores = [
 
 const ResultsView = () => {
     const navigate = useNavigate();
-    const { resetInterview, fileName } = useInterview();
+    const { resetInterview, fileName, currentStep } = useInterview();
 
     const totalScore = scores.reduce((sum, s) => sum + s.score, 0);
     const maxTotal = scores.reduce((sum, s) => sum + s.maxScore, 0);
@@ -73,6 +73,23 @@ const ResultsView = () => {
         resetInterview();
         navigate("/admin/default");
     };
+
+    // only show results after the interview has been submitted
+    if (currentStep !== "results") {
+        return (
+            <div className="mt-12 text-center">
+                <p className="text-lg text-gray-500 dark:text-gray-400">
+                    No results available yet. Complete an interview first.
+                </p>
+                <button
+                    onClick={() => navigate("/admin/default")}
+                    className="mt-4 rounded-xl bg-brand-500 px-6 py-3 font-bold text-white hover:bg-brand-600"
+                >
+                    Go to Upload
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div className="mt-3">
