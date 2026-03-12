@@ -9,6 +9,13 @@ interface Question {
   question: string;
 }
 
+interface ScoringResult {
+  category: string;
+  score: number;
+  maxScore: number;
+  feedback: string;
+}
+
 interface InterviewState {
   fileName: string | null;
   currentStep: InterviewStep;
@@ -16,6 +23,8 @@ interface InterviewState {
   predictedCategory: string | null;
   resumeSnippet: string | null;
   questions: Question[];
+  results: ScoringResult[];
+  isScoring: boolean;
 }
 
 interface InterviewContextType extends InterviewState {
@@ -24,6 +33,8 @@ interface InterviewContextType extends InterviewState {
   submitInterview: () => void;
   resetInterview: () => void;
   goToInterview: () => void;
+  setIsScoring: (val: boolean) => void;
+  setResults: (results: ScoringResult[]) => void;
   setBackendData: (data: {
     predicted_category: string;
     resume_snippet: string;
@@ -45,6 +56,8 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
     predictedCategory: null,
     resumeSnippet: null,
     questions: [],
+    results: [],
+    isScoring: false,
   });
 
   const setFile = useCallback((name: string) => {
@@ -56,6 +69,14 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
       ...prev,
       answers: { ...prev.answers, [questionId]: answer },
     }));
+  }, []);
+
+  const setIsScoring = useCallback((val: boolean) => {
+    setState((prev) => ({ ...prev, isScoring: val }));
+  }, []);
+
+  const setResults = useCallback((results: ScoringResult[]) => {
+    setState((prev) => ({ ...prev, results }));
   }, []);
 
   // store the response that comes back from /api/upload-resume
@@ -91,6 +112,8 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
       predictedCategory: null,
       resumeSnippet: null,
       questions: [],
+      results: [],
+      isScoring: false,
     });
   }, []);
 
@@ -104,12 +127,15 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
         resetInterview,
         goToInterview,
         setBackendData,
+        setIsScoring,
+        setResults,
       }}
     >
       {children}
     </InterviewContext.Provider>
   );
 };
+
 
 export const useInterview = (): InterviewContextType => {
   const context = useContext(InterviewContext);

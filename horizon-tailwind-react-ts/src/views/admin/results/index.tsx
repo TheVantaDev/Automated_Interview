@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     MdCode,
@@ -13,68 +13,86 @@ import Widget from "components/widget/Widget";
 import ScoreCard from "./components/ScoreCard";
 import { useInterview } from "contexts/InterviewContext";
 
-const scores = [
-    {
-        category: "Technical Skills",
-        score: 8,
-        maxScore: 10,
-        color: "blue" as const,
-        icon: <MdCode className="h-6 w-6" />,
-        feedback:
-            "Strong understanding of React hooks and component architecture. Could improve on explaining performance optimization strategies.",
-    },
-    {
-        category: "Problem Solving",
-        score: 7,
-        maxScore: 10,
-        color: "orange" as const,
-        icon: <MdPsychology className="h-6 w-6" />,
-        feedback:
-            "Good analytical approach with clear problem breakdown. Consider exploring edge cases more thoroughly in responses.",
-    },
-    {
-        category: "System Design",
-        score: 6,
-        maxScore: 10,
-        color: "teal" as const,
-        icon: <MdArchitecture className="h-6 w-6" />,
-        feedback:
-            "Adequate high-level thinking. Would benefit from deeper discussion of scalability patterns and trade-offs.",
-    },
-    {
-        category: "Communication",
-        score: 9,
-        maxScore: 10,
-        color: "green" as const,
-        icon: <MdGroups className="h-6 w-6" />,
-        feedback:
-            "Excellent articulation of ideas. Responses are clear, well-structured, and demonstrate strong interpersonal awareness.",
-    },
-    {
-        category: "Cultural Fit",
-        score: 8,
-        maxScore: 10,
-        color: "purple" as const,
-        icon: <MdFavorite className="h-6 w-6" />,
-        feedback:
-            "Values align well with collaborative team environments. Shows growth mindset and openness to feedback.",
-    },
-];
+const API_BASE_URL = "http://localhost:8000";
+
+const categoryIconMap: Record<string, JSX.Element> = {
+    "Technical Skills": <MdCode className="h-6 w-6" />,
+    "Problem Solving": <MdPsychology className="h-6 w-6" />,
+    "System Design": <MdArchitecture className="h-6 w-6" />,
+    Communication: <MdGroups className="h-6 w-6" />,
+    "Cultural Fit": <MdFavorite className="h-6 w-6" />,
+};
+
+const categoryColorMap: Record<string, "blue" | "orange" | "teal" | "green" | "purple"> = {
+    "Technical Skills": "blue",
+    "Problem Solving": "orange",
+    "System Design": "teal",
+    Communication: "green",
+    "Cultural Fit": "purple",
+};
 
 const ResultsView = () => {
     const navigate = useNavigate();
-    const { resetInterview, fileName, currentStep } = useInterview();
+    const {
+        resetInterview,
+        fileName,
+        currentStep,
+        questions,
+        answers,
+        results,
+        setResults,
+        isScoring,
+        setIsScoring
+    } = useInterview();
 
-    const totalScore = scores.reduce((sum, s) => sum + s.score, 0);
-    const maxTotal = scores.reduce((sum, s) => sum + s.maxScore, 0);
-    const overallPercentage = Math.round((totalScore / maxTotal) * 100);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const fetchResults = async () => {
+            // only run if we have answers and haven't fetched results yet
+            if (currentStep === "results" && results.length === 0 && !isScoring) {
+                setIsScoring(true);
+                setError(null);
+
+                try {
+                    const interview_data = questions.map(q => ({
+                        question: q.question,
+                        answer: answers[q.id] || "No answer provided.",
+                        category: q.category
+                    }));
+
+                    const response = await fetch(`${API_BASE_URL}/api/generate-results`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ interview_data }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error("Failed to generate assessment. Please try again.");
+                    }
+
+                    const data = await response.json();
+                    setResults(data.results);
+                } catch (err: any) {
+                    setError(err.message);
+                } finally {
+                    setIsScoring(false);
+                }
+            }
+        };
+
+        fetchResults();
+    }, [currentStep, questions, answers, results.length, isScoring, setIsScoring, setResults]);
+
+    const totalScore = results.reduce((sum, s) => sum + s.score, 0);
+    const maxTotal = results.reduce((sum, s) => sum + s.maxScore, 0);
+    const overallPercentage = maxTotal > 0 ? Math.round((totalScore / maxTotal) * 100) : 0;
 
     const handleNewInterview = () => {
         resetInterview();
         navigate("/admin/default");
     };
 
-    // only show results after the interview has been submitted
     if (currentStep !== "results") {
         return (
             <div className="mt-12 text-center">
@@ -86,6 +104,34 @@ const ResultsView = () => {
                     className="mt-4 rounded-xl bg-brand-500 px-6 py-3 font-bold text-white hover:bg-brand-600"
                 >
                     Go to Upload
+                </button>
+            </div>
+        );
+    }
+
+    if (isScoring) {
+        return (
+            <div className="mt-20 flex flex-col items-center justify-center">
+                <div className="h-16 w-16 animate-spin rounded-full border-b-2 border-t-2 border-brand-500"></div>
+                <h2 className="mt-6 text-2xl font-bold text-navy-700 dark:text-white">
+                    Analyzing Your Interview...
+                </h2>
+                <p className="mt-2 text-gray-500 dark:text-gray-400">
+                    Our AI is evaluating your responses across 5 categories.
+                </p>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="mt-12 text-center">
+                <p className="text-lg text-red-500">{error}</p>
+                <button
+                    onClick={() => window.location.reload()}
+                    className="mt-4 rounded-xl bg-brand-500 px-6 py-3 font-bold text-white hover:bg-brand-600"
+                >
+                    Retry Assessment
                 </button>
             </div>
         );
@@ -137,10 +183,10 @@ const ResultsView = () => {
 
             {/* Summary Widgets */}
             <div className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                {scores.map((s) => (
+                {results.map((s) => (
                     <Widget
                         key={s.category}
-                        icon={s.icon}
+                        icon={categoryIconMap[s.category] || <MdCode />}
                         title={s.category}
                         subtitle={`${s.score}/${s.maxScore}`}
                     />
@@ -149,15 +195,15 @@ const ResultsView = () => {
 
             {/* Detailed Score Cards */}
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-                {scores.map((s) => (
+                {results.map((s) => (
                     <ScoreCard
                         key={s.category}
                         category={s.category}
                         score={s.score}
                         maxScore={s.maxScore}
                         feedback={s.feedback}
-                        color={s.color}
-                        icon={s.icon}
+                        color={categoryColorMap[s.category] || "blue"}
+                        icon={categoryIconMap[s.category] || <MdCode />}
                     />
                 ))}
             </div>

@@ -4,7 +4,7 @@ import { MdCloudUpload, MdInsertDriveFile, MdClose } from "react-icons/md";
 import Card from "components/card";
 import { useInterview } from "contexts/InterviewContext";
 
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL = "http://127.0.0.1:8000";
 
 const ResumeUpload = () => {
     const [isDragging, setIsDragging] = useState(false);
@@ -86,6 +86,7 @@ const ResumeUpload = () => {
             }
 
             const data = await response.json();
+            console.log("Backend Response:", data);
 
             // push everything into shared context so other views can use it
             setFile(data.filename);
@@ -97,6 +98,7 @@ const ResumeUpload = () => {
 
             goToInterview();
             navigate("/admin/interview");
+
         } catch (err: any) {
             // network errors, backend down, bad PDF, etc.
             const message =

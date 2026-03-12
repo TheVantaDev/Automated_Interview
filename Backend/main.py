@@ -7,14 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 import pdfplumber
 from pydantic import BaseModel
 
-from utils import extract_skills, generate_interview_questions, score_answer
+from utils import extract_skills, generate_interview_questions, score_answer, generate_overall_results
 
 app = FastAPI(title="AI Interviewer Backend")
 
-# allow the React dev server to talk to us
+# allow more origins or just any for local dev to avoid "Failed to fetch" browser issues
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -23,6 +23,10 @@ app.add_middleware(
 class AnswerSubmission(BaseModel):
     question: str
     answer: str
+    category: str = "Technical"
+
+class OverallResultsRequest(BaseModel):
+    interview_data: List[Dict] # list of {question, answer, category}
 
 def extract_text_from_pdf(file_path: str) -> str:
     """Pull all readable text out of every page of a PDF."""
@@ -56,6 +60,7 @@ async def upload_resume(file: UploadFile = File(...)):
             tmp_path = tmp.name
 
         extracted_resume_text = extract_text_from_pdf(tmp_path)
+        print(f"DEBUG: Extracted {len(extracted_resume_text)} characters from PDF")
 
         if not extracted_resume_text:
             raise HTTPException(
@@ -64,17 +69,26 @@ async def upload_resume(file: UploadFile = File(...)):
             )
 
         # 1. Extract Skills using the spaCy model
+        print("DEBUG: Extracting skills...")
         skills = extract_skills(extracted_resume_text)
+        print(f"DEBUG: Extracted {len(skills)} skills")
 
         # 2. Generate specialized questions using LLM
+        print("DEBUG: Generating questions...")
         interview_questions = generate_interview_questions(skills, extracted_resume_text)
+        print(f"DEBUG: Generated {len(interview_questions)} questions")
+
+        # predicted category is based on top skill/extraction
+        predicted_cat = skills[0] if (skills and len(skills) > 0) else "General Candidate"
 
         return {
             "filename": file.filename,
-            "skills_extracted": skills,
-            "resume_context": extracted_resume_text[:1000],  # snippets for UI
+            "predicted_category": predicted_cat,
+            "resume_snippet": extracted_resume_text[:500],  # snippets for UI
             "questions": interview_questions,
         }
+
+
 
     finally:
         # clean up the temp file regardless of success/failure
@@ -82,13 +96,18 @@ async def upload_resume(file: UploadFile = File(...)):
             os.remove(tmp_path)
 
 # ---------------------------------------------------------------------------
-# Scoring endpoint – evaluates user answer
+# Scoring endpoints
 # ---------------------------------------------------------------------------
 
 @app.post("/api/score-answer")
 async def evaluate_answer(submission: AnswerSubmission):
     feedback_data = score_answer(submission.question, submission.answer)
     return feedback_data
+
+@app.post("/api/generate-results")
+async def get_overall_results(request: OverallResultsRequest):
+    results = generate_overall_results(request.interview_data)
+    return {"results": results}
 
 # ---------------------------------------------------------------------------
 # Health check – nice to have for debugging
@@ -97,3 +116,4 @@ async def evaluate_answer(submission: AnswerSubmission):
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "message": "AI Interviewer backend is running"}
+
