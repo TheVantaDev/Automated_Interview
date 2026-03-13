@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     MdCode,
@@ -8,66 +8,46 @@ import {
     MdFavorite,
     MdRefresh,
     MdEmojiEvents,
+    MdStarOutline
 } from "react-icons/md";
 import Widget from "components/widget/Widget";
 import ScoreCard from "./components/ScoreCard";
 import { useInterview } from "contexts/InterviewContext";
 
-const scores = [
-    {
-        category: "Technical Skills",
-        score: 8,
-        maxScore: 10,
-        color: "blue" as const,
-        icon: <MdCode className="h-6 w-6" />,
-        feedback:
-            "Strong understanding of React hooks and component architecture. Could improve on explaining performance optimization strategies.",
-    },
-    {
-        category: "Problem Solving",
-        score: 7,
-        maxScore: 10,
-        color: "orange" as const,
-        icon: <MdPsychology className="h-6 w-6" />,
-        feedback:
-            "Good analytical approach with clear problem breakdown. Consider exploring edge cases more thoroughly in responses.",
-    },
-    {
-        category: "System Design",
-        score: 6,
-        maxScore: 10,
-        color: "teal" as const,
-        icon: <MdArchitecture className="h-6 w-6" />,
-        feedback:
-            "Adequate high-level thinking. Would benefit from deeper discussion of scalability patterns and trade-offs.",
-    },
-    {
-        category: "Communication",
-        score: 9,
-        maxScore: 10,
-        color: "green" as const,
-        icon: <MdGroups className="h-6 w-6" />,
-        feedback:
-            "Excellent articulation of ideas. Responses are clear, well-structured, and demonstrate strong interpersonal awareness.",
-    },
-    {
-        category: "Cultural Fit",
-        score: 8,
-        maxScore: 10,
-        color: "purple" as const,
-        icon: <MdFavorite className="h-6 w-6" />,
-        feedback:
-            "Values align well with collaborative team environments. Shows growth mindset and openness to feedback.",
-    },
-];
+const getIconForCategory = (category: string) => {
+    const lower = category.toLowerCase();
+    if (lower.includes("tech") || lower.includes("code")) return <MdCode className="h-6 w-6" />;
+    if (lower.includes("problem") || lower.includes("logic")) return <MdPsychology className="h-6 w-6" />;
+    if (lower.includes("system") || lower.includes("design")) return <MdArchitecture className="h-6 w-6" />;
+    if (lower.includes("communication") || lower.includes("team")) return <MdGroups className="h-6 w-6" />;
+    if (lower.includes("behavior") || lower.includes("culture")) return <MdFavorite className="h-6 w-6" />;
+    return <MdStarOutline className="h-6 w-6" />;
+};
+
+const getColorForCategory = (index: number): "blue" | "orange" | "teal" | "green" | "purple" => {
+    const colors: ("blue" | "orange" | "teal" | "green" | "purple")[] = ["blue", "orange", "teal", "green", "purple"];
+    return colors[index % colors.length];
+};
 
 const ResultsView = () => {
     const navigate = useNavigate();
-    const { resetInterview, fileName, currentStep } = useInterview();
+    const { resetInterview, fileName, currentStep, scores: rawScores } = useInterview();
 
-    const totalScore = scores.reduce((sum, s) => sum + s.score, 0);
-    const maxTotal = scores.reduce((sum, s) => sum + s.maxScore, 0);
-    const overallPercentage = Math.round((totalScore / maxTotal) * 100);
+    const displayScores = useMemo(() => {
+        if (!rawScores || rawScores.length === 0) return [];
+        return rawScores.map((s, idx) => ({
+            category: s.category || `Question ${idx + 1}`,
+            score: s.score || 0,
+            maxScore: s.maxScore || 10,
+            color: getColorForCategory(idx),
+            icon: getIconForCategory(s.category || ""),
+            feedback: s.feedback || "No feedback provided."
+        }));
+    }, [rawScores]);
+
+    const totalScore = displayScores.reduce((sum, s) => sum + s.score, 0);
+    const maxTotal = displayScores.reduce((sum, s) => sum + s.maxScore, 0);
+    const overallPercentage = maxTotal > 0 ? Math.round((totalScore / maxTotal) * 100) : 0;
 
     const handleNewInterview = () => {
         resetInterview();
@@ -137,7 +117,7 @@ const ResultsView = () => {
 
             {/* Summary Widgets */}
             <div className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                {scores.map((s) => (
+                {displayScores.map((s) => (
                     <Widget
                         key={s.category}
                         icon={s.icon}
@@ -149,7 +129,7 @@ const ResultsView = () => {
 
             {/* Detailed Score Cards */}
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-                {scores.map((s) => (
+                {displayScores.map((s) => (
                     <ScoreCard
                         key={s.category}
                         category={s.category}
@@ -161,6 +141,7 @@ const ResultsView = () => {
                     />
                 ))}
             </div>
+
 
             {/* New Interview Button */}
             <button

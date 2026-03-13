@@ -16,6 +16,8 @@ interface InterviewState {
   predictedCategory: string | null;
   resumeSnippet: string | null;
   questions: Question[];
+  skillsExtracted: string[];
+  scores?: any[]; // Array to hold the scoring results from backend
 }
 
 interface InterviewContextType extends InterviewState {
@@ -28,6 +30,7 @@ interface InterviewContextType extends InterviewState {
     predicted_category: string;
     resume_snippet: string;
     questions: Question[];
+    skills_extracted?: string[];
   }) => void;
 }
 
@@ -45,6 +48,8 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
     predictedCategory: null,
     resumeSnippet: null,
     questions: [],
+    skillsExtracted: [],
+    scores: [],
   });
 
   const setFile = useCallback((name: string) => {
@@ -64,12 +69,14 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
       predicted_category: string;
       resume_snippet: string;
       questions: Question[];
+      skills_extracted?: string[];
     }) => {
       setState((prev) => ({
         ...prev,
         predictedCategory: data.predicted_category,
         resumeSnippet: data.resume_snippet,
         questions: data.questions,
+        skillsExtracted: data.skills_extracted || [],
       }));
     },
     []
@@ -79,9 +86,53 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
     setState((prev) => ({ ...prev, currentStep: "interview" }));
   }, []);
 
-  const submitInterview = useCallback(() => {
-    setState((prev) => ({ ...prev, currentStep: "results" }));
-  }, []);
+  const submitInterview = useCallback(async () => {
+    // We need to fetch scores for all answered questions
+    try {
+        const results = await Promise.all(
+            state.questions.map(async (q) => {
+                const answer = state.answers[q.id] || "";
+                if (!answer.trim()) {
+                    return {
+                        category: q.category,
+                        score: 0,
+                        maxScore: 10,
+                        feedback: "No answer provided.",
+                    };
+                }
+
+                // Call the backend
+                const response = await fetch("http://localhost:8000/api/score-answer", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ question: q.question, answer: answer }),
+                });
+
+                if (!response.ok) {
+                    throw new Error("Failed to score answer");
+                }
+
+                const data = await response.json();
+                return {
+                    category: q.category,
+                    score: data.score,
+                    maxScore: 10,
+                    feedback: data.feedback,
+                };
+            })
+        );
+        
+        setState((prev) => ({ 
+            ...prev, 
+            currentStep: "results",
+            scores: results 
+        }));
+    } catch (err) {
+        console.error("Error submitting interview:", err);
+        // Navigate anyway or show error? Let's just move to results for now
+        setState((prev) => ({ ...prev, currentStep: "results" }));
+    }
+  }, [state.questions, state.answers]);
 
   const resetInterview = useCallback(() => {
     setState({
@@ -91,6 +142,8 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
       predictedCategory: null,
       resumeSnippet: null,
       questions: [],
+      skillsExtracted: [],
+      scores: [],
     });
   }, []);
 

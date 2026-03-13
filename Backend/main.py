@@ -1,4 +1,5 @@
 import os
+import asyncio
 import tempfile
 from typing import List, Dict
 
@@ -7,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import pdfplumber
 from pydantic import BaseModel
 
-from utils import extract_skills, generate_interview_questions, score_answer
+from utils import analyze_resume, score_answer
 
 app = FastAPI(title="AI Interviewer Backend")
 
@@ -26,10 +27,10 @@ class AnswerSubmission(BaseModel):
 
 def extract_text_from_pdf(file_path: str) -> str:
     """Pull all readable text out of every page of a PDF."""
-    full_text = ""
+    full_text: str = ""
     with pdfplumber.open(file_path) as pdf:
         for page in pdf.pages:
-            page_text = page.extract_text()
+            page_text: str = page.extract_text() or ""
             if page_text:
                 full_text += page_text + "\n"
     return full_text.strip()
@@ -63,11 +64,19 @@ async def upload_resume(file: UploadFile = File(...)):
                 detail="Could not extract any text from this PDF. Is it image-based?",
             )
 
-        # 1. Extract Skills using the spaCy model
-        skills = extract_skills(extracted_resume_text)
+        # 0. Analyze Resume (Validation, Skills, Questions in one API call)
+        # Run in thread executor because Ollama is synchronous and takes 30-60s
+        loop = asyncio.get_event_loop()
+        analysis_result = await loop.run_in_executor(None, analyze_resume, extracted_resume_text)
 
-        # 2. Generate specialized questions using LLM
-        interview_questions = generate_interview_questions(skills, extracted_resume_text)
+        if not analysis_result.get("is_valid", True):
+            raise HTTPException(
+                status_code=400,
+                detail="This document does not appear to be a sequence of professional skills or a resume. Please upload a valid resume.",
+            )
+
+        skills = analysis_result.get("skills", [])
+        interview_questions = analysis_result.get("questions", [])
 
         return {
             "filename": file.filename,
@@ -87,7 +96,9 @@ async def upload_resume(file: UploadFile = File(...)):
 
 @app.post("/api/score-answer")
 async def evaluate_answer(submission: AnswerSubmission):
-    feedback_data = score_answer(submission.question, submission.answer)
+    # Run in thread executor because Ollama is synchronous and takes 30-60s
+    loop = asyncio.get_event_loop()
+    feedback_data = await loop.run_in_executor(None, score_answer, submission.question, submission.answer)
     return feedback_data
 
 # ---------------------------------------------------------------------------

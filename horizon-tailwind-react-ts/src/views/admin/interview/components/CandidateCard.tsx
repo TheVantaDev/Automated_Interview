@@ -3,11 +3,10 @@ import { MdPerson, MdWork, MdStar, MdCode, MdSchool } from "react-icons/md";
 import { useInterview } from "contexts/InterviewContext";
 
 const CandidateCard = () => {
-    const { predictedCategory, resumeSnippet } = useInterview();
+    const { predictedCategory, resumeSnippet, skillsExtracted } = useInterview();
 
-    // these would eventually come from the backend analysis as well
-    // TODO: parse skills from the resume text or get them from the CNN pipeline
-    const skills = ["React", "TypeScript", "Node.js", "Python", "AWS"];
+    // Use the dynamically extracted skills from the backend
+    const skills = skillsExtracted.length > 0 ? skillsExtracted : ["Not analyzed yet"];
 
     return (
         <Card extra="p-6 h-fit sticky top-24">

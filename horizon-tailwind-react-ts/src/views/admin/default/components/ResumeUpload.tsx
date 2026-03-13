@@ -73,10 +73,17 @@ const ResumeUpload = () => {
             const formData = new FormData();
             formData.append("file", selectedFile);
 
+            // Local Ollama inference can take 30-60 seconds, so we set a generous timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 seconds
+
             const response = await fetch(`${API_BASE_URL}/api/upload-resume`, {
                 method: "POST",
                 body: formData,
+                signal: controller.signal,
             });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const errBody = await response.json().catch(() => null);
@@ -93,6 +100,7 @@ const ResumeUpload = () => {
                 predicted_category: data.predicted_category,
                 resume_snippet: data.resume_snippet,
                 questions: data.questions,
+                skills_extracted: data.skills_extracted,
             });
 
             goToInterview();
@@ -100,7 +108,9 @@ const ResumeUpload = () => {
         } catch (err: any) {
             // network errors, backend down, bad PDF, etc.
             const message =
-                err.message === "Failed to fetch"
+                err.name === "AbortError"
+                    ? "The AI is taking too long. Please try again."
+                    : err.message === "Failed to fetch"
                     ? "Could not reach the backend. Is the FastAPI server running on port 8000?"
                     : err.message;
             setError(message);
@@ -239,7 +249,7 @@ const ResumeUpload = () => {
                                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                                 />
                             </svg>
-                            Analyzing Resume...
+                            Analyzing with Local AI (may take up to 60s)...
                         </>
                     ) : (
                         "Analyze Resume"
