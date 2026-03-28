@@ -8,7 +8,10 @@ import {
     MdFavorite,
     MdRefresh,
     MdEmojiEvents,
-    MdStarOutline
+    MdStarOutline,
+    MdVideocam,
+    MdWarning,
+    MdCheckCircle,
 } from "react-icons/md";
 import Widget from "components/widget/Widget";
 import ScoreCard from "./components/ScoreCard";
@@ -31,7 +34,8 @@ const getColorForCategory = (index: number): "blue" | "orange" | "teal" | "green
 
 const ResultsView = () => {
     const navigate = useNavigate();
-    const { resetInterview, fileName, currentStep, scores: rawScores } = useInterview();
+    const { resetInterview, fileName, currentStep, scores: rawScores, cameraAlerts } = useInterview();
+
 
     const displayScores = useMemo(() => {
         if (!rawScores || rawScores.length === 0) return [];
@@ -142,6 +146,43 @@ const ResultsView = () => {
                 ))}
             </div>
 
+
+            {/* ── Proctoring Summary ── */}
+            <div className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-md dark:border-white/10 dark:bg-navy-800">
+                <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-white/10">
+                    <div className="flex items-center gap-2">
+                        <MdVideocam className="h-5 w-5 text-brand-500 dark:text-brand-400" />
+                        <h3 className="text-base font-bold text-navy-700 dark:text-white">Proctoring Summary</h3>
+                    </div>
+                    {cameraAlerts && cameraAlerts.length > 0 ? (
+                        <span className="flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-sm font-bold text-red-600 dark:bg-red-900/30 dark:text-red-400">
+                            <MdWarning className="h-4 w-4" />
+                            {cameraAlerts.length} Alert{cameraAlerts.length !== 1 ? "s" : ""}
+                        </span>
+                    ) : (
+                        <span className="flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-sm font-bold text-green-600 dark:bg-green-900/30 dark:text-green-400">
+                            <MdCheckCircle className="h-4 w-4" />
+                            Clean Session
+                        </span>
+                    )}
+                </div>
+                <div className="px-5 py-4">
+                    {!cameraAlerts || cameraAlerts.length === 0 ? (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            No proctoring alerts were recorded during this interview session. ✓
+                        </p>
+                    ) : (
+                        <ul className="space-y-2">
+                            {cameraAlerts.map((alert, i) => (
+                                <li key={i} className="flex items-start gap-2 text-sm text-red-500 dark:text-red-400">
+                                    <MdWarning className="mt-0.5 h-4 w-4 shrink-0" />
+                                    <span>{alert}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            </div>
 
             {/* New Interview Button */}
             <button

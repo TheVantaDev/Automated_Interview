@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useCallback } from "react";
 
 type InterviewStep = "upload" | "interview" | "results";
 
-// shape of each question coming from the backend
 interface Question {
   id: number;
   category: string;
@@ -17,15 +16,18 @@ interface InterviewState {
   resumeSnippet: string | null;
   questions: Question[];
   skillsExtracted: string[];
-  scores?: any[]; // Array to hold the scoring results from backend
+  scores: any[];
+  isSubmitting: boolean;
+  cameraAlerts: string[];
 }
 
 interface InterviewContextType extends InterviewState {
   setFile: (name: string) => void;
   setAnswer: (questionId: number, answer: string) => void;
-  submitInterview: () => void;
+  submitInterview: () => Promise<void>;
   resetInterview: () => void;
   goToInterview: () => void;
+  addCameraAlert: (msg: string) => void;
   setBackendData: (data: {
     predicted_category: string;
     resume_snippet: string;
@@ -38,19 +40,23 @@ const InterviewContext = createContext<InterviewContextType | undefined>(
   undefined
 );
 
+const INITIAL_STATE: InterviewState = {
+  fileName: null,
+  currentStep: "upload",
+  answers: {},
+  predictedCategory: null,
+  resumeSnippet: null,
+  questions: [],
+  skillsExtracted: [],
+  scores: [],
+  isSubmitting: false,
+  cameraAlerts: [],
+};
+
 export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [state, setState] = useState<InterviewState>({
-    fileName: null,
-    currentStep: "upload",
-    answers: {},
-    predictedCategory: null,
-    resumeSnippet: null,
-    questions: [],
-    skillsExtracted: [],
-    scores: [],
-  });
+  const [state, setState] = useState<InterviewState>(INITIAL_STATE);
 
   const setFile = useCallback((name: string) => {
     setState((prev) => ({ ...prev, fileName: name }));
@@ -63,7 +69,13 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   }, []);
 
-  // store the response that comes back from /api/upload-resume
+  const addCameraAlert = useCallback((msg: string) => {
+    setState((prev) => ({
+      ...prev,
+      cameraAlerts: [...prev.cameraAlerts, msg],
+    }));
+  }, []);
+
   const setBackendData = useCallback(
     (data: {
       predicted_category: string;
@@ -86,65 +98,51 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
     setState((prev) => ({ ...prev, currentStep: "interview" }));
   }, []);
 
+  // ─── FIX: submitInterview is truly async – navigate ONLY after scores arrive ──
   const submitInterview = useCallback(async () => {
-    // We need to fetch scores for all answered questions
+    setState((prev) => ({ ...prev, isSubmitting: true }));
     try {
-        const results = await Promise.all(
-            state.questions.map(async (q) => {
-                const answer = state.answers[q.id] || "";
-                if (!answer.trim()) {
-                    return {
-                        category: q.category,
-                        score: 0,
-                        maxScore: 10,
-                        feedback: "No answer provided.",
-                    };
-                }
-
-                // Call the backend
-                const response = await fetch("http://localhost:8000/api/score-answer", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ question: q.question, answer: answer }),
-                });
-
-                if (!response.ok) {
-                    throw new Error("Failed to score answer");
-                }
-
-                const data = await response.json();
-                return {
-                    category: q.category,
-                    score: data.score,
-                    maxScore: 10,
-                    feedback: data.feedback,
-                };
-            })
-        );
-        
-        setState((prev) => ({ 
-            ...prev, 
-            currentStep: "results",
-            scores: results 
-        }));
+      const results = await Promise.all(
+        state.questions.map(async (q) => {
+          const answer = state.answers[q.id] || "";
+          if (!answer.trim()) {
+            return {
+              category: q.category,
+              score: 0,
+              maxScore: 10,
+              feedback: "No answer provided.",
+            };
+          }
+          const response = await fetch("http://localhost:8000/api/score-answer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question: q.question, answer }),
+          });
+          if (!response.ok) throw new Error("Failed to score answer");
+          const data = await response.json();
+          return {
+            category: q.category,
+            score: data.score,
+            maxScore: 10,
+            feedback: data.feedback,
+          };
+        })
+      );
+      setState((prev) => ({
+        ...prev,
+        currentStep: "results",
+        scores: results,
+        isSubmitting: false,
+      }));
     } catch (err) {
-        console.error("Error submitting interview:", err);
-        // Navigate anyway or show error? Let's just move to results for now
-        setState((prev) => ({ ...prev, currentStep: "results" }));
+      console.error("Error submitting interview:", err);
+      // Still move to results so the user isn't stuck
+      setState((prev) => ({ ...prev, currentStep: "results", isSubmitting: false }));
     }
   }, [state.questions, state.answers]);
 
   const resetInterview = useCallback(() => {
-    setState({
-      fileName: null,
-      currentStep: "upload",
-      answers: {},
-      predictedCategory: null,
-      resumeSnippet: null,
-      questions: [],
-      skillsExtracted: [],
-      scores: [],
-    });
+    setState(INITIAL_STATE);
   }, []);
 
   return (
@@ -156,6 +154,7 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
         submitInterview,
         resetInterview,
         goToInterview,
+        addCameraAlert,
         setBackendData,
       }}
     >

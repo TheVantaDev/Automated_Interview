@@ -9,6 +9,7 @@ import pdfplumber
 from pydantic import BaseModel
 
 from utils import analyze_resume, score_answer
+from camera_analysis import analyze_frame as cv_analyze_frame
 
 app = FastAPI(title="AI Interviewer Backend")
 
@@ -100,6 +101,24 @@ async def evaluate_answer(submission: AnswerSubmission):
     loop = asyncio.get_event_loop()
     feedback_data = await loop.run_in_executor(None, score_answer, submission.question, submission.answer)
     return feedback_data
+
+# ---------------------------------------------------------------------------
+# Camera proctoring endpoint – face detection via OpenCV
+# ---------------------------------------------------------------------------
+
+class FrameSubmission(BaseModel):
+    frame: str  # base64-encoded JPEG/PNG from the browser canvas
+
+@app.post("/api/analyze-frame")
+async def analyze_camera_frame(submission: FrameSubmission):
+    """
+    Accepts a base64 image frame from the frontend, runs OpenCV Haar-cascade
+    face detection, and returns proctoring data:
+      { face_detected, face_count, confidence, alert, boxes }
+    """
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, cv_analyze_frame, submission.frame)
+    return result
 
 # ---------------------------------------------------------------------------
 # Health check – nice to have for debugging

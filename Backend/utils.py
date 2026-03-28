@@ -14,7 +14,7 @@ def analyze_resume(text: str) -> dict:
     
     1. Determine if the text is a valid professional resume, CV, or LinkedIn profile.
     2. If it is a valid resume, extract a list of professional skills.
-    3. Generate 3-5 high-quality interview questions based specifically on the extracted skills and context. The questions should be a mix of technical, problem-solving, and behavioral.
+    3. Generate exactly 7-8 high-quality interview questions based specifically on the extracted skills and experience. Use a rich mix of categories: Technical, Problem-Solving, System Design, Behavioral, Situational, Leadership, and Communication. Each question should be thoughtful and tailored to the candidate's background.
     
     Document Text: 
     {text[:3000]}
