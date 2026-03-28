@@ -8,15 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 import pdfplumber
 from pydantic import BaseModel
 
-from utils import analyze_resume, score_answer
+from utils import analyze_resume, score_answer, generate_overall_results
 from camera_analysis import analyze_frame as cv_analyze_frame
 
 app = FastAPI(title="AI Interviewer Backend")
 
-# allow the React dev server to talk to us
+# allow more origins or just any for local dev to avoid "Failed to fetch" browser issues
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -25,6 +25,10 @@ app.add_middleware(
 class AnswerSubmission(BaseModel):
     question: str
     answer: str
+    category: str = "Technical"
+
+class OverallResultsRequest(BaseModel):
+    interview_data: List[Dict] # list of {question, answer, category}
 
 def extract_text_from_pdf(file_path: str) -> str:
     """Pull all readable text out of every page of a PDF."""
@@ -58,6 +62,7 @@ async def upload_resume(file: UploadFile = File(...)):
             tmp_path = tmp.name
 
         extracted_resume_text = extract_text_from_pdf(tmp_path)
+        print(f"DEBUG: Extracted {len(extracted_resume_text)} characters from PDF")
 
         if not extracted_resume_text:
             raise HTTPException(
@@ -65,24 +70,25 @@ async def upload_resume(file: UploadFile = File(...)):
                 detail="Could not extract any text from this PDF. Is it image-based?",
             )
 
-        # 0. Analyze Resume (Validation, Skills, Questions in one API call)
-        # Run in thread executor because Ollama is synchronous and takes 30-60s
+        # Analyze Resume (Validation, Skills, Questions in one API call via Ollama)
         loop = asyncio.get_event_loop()
         analysis_result = await loop.run_in_executor(None, analyze_resume, extracted_resume_text)
 
         if not analysis_result.get("is_valid", True):
             raise HTTPException(
                 status_code=400,
-                detail="This document does not appear to be a sequence of professional skills or a resume. Please upload a valid resume.",
+                detail="This document does not appear to be a resume. Please upload a valid resume.",
             )
 
         skills = analysis_result.get("skills", [])
         interview_questions = analysis_result.get("questions", [])
+        predicted_cat = skills[0] if skills else "General Candidate"
 
         return {
             "filename": file.filename,
+            "predicted_category": predicted_cat,
+            "resume_snippet": extracted_resume_text[:500],
             "skills_extracted": skills,
-            "resume_context": extracted_resume_text[:1000],  # snippets for UI
             "questions": interview_questions,
         }
 
@@ -91,8 +97,9 @@ async def upload_resume(file: UploadFile = File(...)):
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
 
+
 # ---------------------------------------------------------------------------
-# Scoring endpoint – evaluates user answer
+# Scoring endpoints
 # ---------------------------------------------------------------------------
 
 @app.post("/api/score-answer")
@@ -101,6 +108,11 @@ async def evaluate_answer(submission: AnswerSubmission):
     loop = asyncio.get_event_loop()
     feedback_data = await loop.run_in_executor(None, score_answer, submission.question, submission.answer)
     return feedback_data
+
+@app.post("/api/generate-results")
+async def get_overall_results(request: OverallResultsRequest):
+    results = generate_overall_results(request.interview_data)
+    return {"results": results}
 
 # ---------------------------------------------------------------------------
 # Camera proctoring endpoint – face detection via OpenCV
@@ -127,3 +139,4 @@ async def analyze_camera_frame(submission: FrameSubmission):
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "message": "AI Interviewer backend is running"}
+

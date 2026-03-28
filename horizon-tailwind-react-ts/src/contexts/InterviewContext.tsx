@@ -8,6 +8,13 @@ interface Question {
   question: string;
 }
 
+export interface ScoringResult {
+  category: string;
+  score: number;
+  maxScore: number;
+  feedback: string;
+}
+
 interface InterviewState {
   fileName: string | null;
   currentStep: InterviewStep;
@@ -16,8 +23,10 @@ interface InterviewState {
   resumeSnippet: string | null;
   questions: Question[];
   skillsExtracted: string[];
-  scores: any[];
-  isSubmitting: boolean;
+  // Results from scoring
+  results: ScoringResult[];
+  isScoring: boolean;
+  // Camera proctoring
   cameraAlerts: string[];
 }
 
@@ -28,6 +37,8 @@ interface InterviewContextType extends InterviewState {
   resetInterview: () => void;
   goToInterview: () => void;
   addCameraAlert: (msg: string) => void;
+  setIsScoring: (val: boolean) => void;
+  setResults: (results: ScoringResult[]) => void;
   setBackendData: (data: {
     predicted_category: string;
     resume_snippet: string;
@@ -48,8 +59,8 @@ const INITIAL_STATE: InterviewState = {
   resumeSnippet: null,
   questions: [],
   skillsExtracted: [],
-  scores: [],
-  isSubmitting: false,
+  results: [],
+  isScoring: false,
   cameraAlerts: [],
 };
 
@@ -76,6 +87,15 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   }, []);
 
+  const setIsScoring = useCallback((val: boolean) => {
+    setState((prev) => ({ ...prev, isScoring: val }));
+  }, []);
+
+  const setResults = useCallback((results: ScoringResult[]) => {
+    setState((prev) => ({ ...prev, results }));
+  }, []);
+
+  // Store the response that comes back from /api/upload-resume
   const setBackendData = useCallback(
     (data: {
       predicted_category: string;
@@ -98,48 +118,10 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
     setState((prev) => ({ ...prev, currentStep: "interview" }));
   }, []);
 
-  // ─── FIX: submitInterview is truly async – navigate ONLY after scores arrive ──
+  // submitInterview transitions to results; the results page fetches scores itself
   const submitInterview = useCallback(async () => {
-    setState((prev) => ({ ...prev, isSubmitting: true }));
-    try {
-      const results = await Promise.all(
-        state.questions.map(async (q) => {
-          const answer = state.answers[q.id] || "";
-          if (!answer.trim()) {
-            return {
-              category: q.category,
-              score: 0,
-              maxScore: 10,
-              feedback: "No answer provided.",
-            };
-          }
-          const response = await fetch("http://localhost:8000/api/score-answer", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question: q.question, answer }),
-          });
-          if (!response.ok) throw new Error("Failed to score answer");
-          const data = await response.json();
-          return {
-            category: q.category,
-            score: data.score,
-            maxScore: 10,
-            feedback: data.feedback,
-          };
-        })
-      );
-      setState((prev) => ({
-        ...prev,
-        currentStep: "results",
-        scores: results,
-        isSubmitting: false,
-      }));
-    } catch (err) {
-      console.error("Error submitting interview:", err);
-      // Still move to results so the user isn't stuck
-      setState((prev) => ({ ...prev, currentStep: "results", isSubmitting: false }));
-    }
-  }, [state.questions, state.answers]);
+    setState((prev) => ({ ...prev, currentStep: "results", results: [], isScoring: false }));
+  }, []);
 
   const resetInterview = useCallback(() => {
     setState(INITIAL_STATE);
@@ -155,6 +137,8 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
         resetInterview,
         goToInterview,
         addCameraAlert,
+        setIsScoring,
+        setResults,
         setBackendData,
       }}
     >

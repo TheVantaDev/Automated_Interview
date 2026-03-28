@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import React, { useMemo } from "react";
+=======
+import React, { useEffect, useState } from "react";
+>>>>>>> 33586b3c12d9cf297ceb385cbc6806f56dbcd155
 import { useNavigate } from "react-router-dom";
 import {
     MdCode,
@@ -17,6 +21,7 @@ import Widget from "components/widget/Widget";
 import ScoreCard from "./components/ScoreCard";
 import { useInterview } from "contexts/InterviewContext";
 
+<<<<<<< HEAD
 const getIconForCategory = (category: string) => {
     const lower = category.toLowerCase();
     if (lower.includes("tech") || lower.includes("code")) return <MdCode className="h-6 w-6" />;
@@ -30,10 +35,29 @@ const getIconForCategory = (category: string) => {
 const getColorForCategory = (index: number): "blue" | "orange" | "teal" | "green" | "purple" => {
     const colors: ("blue" | "orange" | "teal" | "green" | "purple")[] = ["blue", "orange", "teal", "green", "purple"];
     return colors[index % colors.length];
+=======
+const API_BASE_URL = "http://localhost:8000";
+
+const categoryIconMap: Record<string, JSX.Element> = {
+    "Technical Skills": <MdCode className="h-6 w-6" />,
+    "Problem Solving": <MdPsychology className="h-6 w-6" />,
+    "System Design": <MdArchitecture className="h-6 w-6" />,
+    Communication: <MdGroups className="h-6 w-6" />,
+    "Cultural Fit": <MdFavorite className="h-6 w-6" />,
+};
+
+const categoryColorMap: Record<string, "blue" | "orange" | "teal" | "green" | "purple"> = {
+    "Technical Skills": "blue",
+    "Problem Solving": "orange",
+    "System Design": "teal",
+    Communication: "green",
+    "Cultural Fit": "purple",
+>>>>>>> 33586b3c12d9cf297ceb385cbc6806f56dbcd155
 };
 
 const ResultsView = () => {
     const navigate = useNavigate();
+<<<<<<< HEAD
     const { resetInterview, fileName, currentStep, scores: rawScores, cameraAlerts } = useInterview();
 
 
@@ -51,6 +75,61 @@ const ResultsView = () => {
 
     const totalScore = displayScores.reduce((sum, s) => sum + s.score, 0);
     const maxTotal = displayScores.reduce((sum, s) => sum + s.maxScore, 0);
+=======
+    const {
+        resetInterview,
+        fileName,
+        currentStep,
+        questions,
+        answers,
+        results,
+        setResults,
+        isScoring,
+        setIsScoring
+    } = useInterview();
+
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const fetchResults = async () => {
+            // only run if we have answers and haven't fetched results yet
+            if (currentStep === "results" && results.length === 0 && !isScoring) {
+                setIsScoring(true);
+                setError(null);
+
+                try {
+                    const interview_data = questions.map(q => ({
+                        question: q.question,
+                        answer: answers[q.id] || "No answer provided.",
+                        category: q.category
+                    }));
+
+                    const response = await fetch(`${API_BASE_URL}/api/generate-results`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ interview_data }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error("Failed to generate assessment. Please try again.");
+                    }
+
+                    const data = await response.json();
+                    setResults(data.results);
+                } catch (err: any) {
+                    setError(err.message);
+                } finally {
+                    setIsScoring(false);
+                }
+            }
+        };
+
+        fetchResults();
+    }, [currentStep, questions, answers, results.length, isScoring, setIsScoring, setResults]);
+
+    const totalScore = results.reduce((sum, s) => sum + s.score, 0);
+    const maxTotal = results.reduce((sum, s) => sum + s.maxScore, 0);
+>>>>>>> 33586b3c12d9cf297ceb385cbc6806f56dbcd155
     const overallPercentage = maxTotal > 0 ? Math.round((totalScore / maxTotal) * 100) : 0;
 
     const handleNewInterview = () => {
@@ -58,7 +137,6 @@ const ResultsView = () => {
         navigate("/admin/default");
     };
 
-    // only show results after the interview has been submitted
     if (currentStep !== "results") {
         return (
             <div className="mt-12 text-center">
@@ -70,6 +148,34 @@ const ResultsView = () => {
                     className="mt-4 rounded-xl bg-brand-500 px-6 py-3 font-bold text-white hover:bg-brand-600"
                 >
                     Go to Upload
+                </button>
+            </div>
+        );
+    }
+
+    if (isScoring) {
+        return (
+            <div className="mt-20 flex flex-col items-center justify-center">
+                <div className="h-16 w-16 animate-spin rounded-full border-b-2 border-t-2 border-brand-500"></div>
+                <h2 className="mt-6 text-2xl font-bold text-navy-700 dark:text-white">
+                    Analyzing Your Interview...
+                </h2>
+                <p className="mt-2 text-gray-500 dark:text-gray-400">
+                    Our AI is evaluating your responses across 5 categories.
+                </p>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="mt-12 text-center">
+                <p className="text-lg text-red-500">{error}</p>
+                <button
+                    onClick={() => window.location.reload()}
+                    className="mt-4 rounded-xl bg-brand-500 px-6 py-3 font-bold text-white hover:bg-brand-600"
+                >
+                    Retry Assessment
                 </button>
             </div>
         );
@@ -121,10 +227,14 @@ const ResultsView = () => {
 
             {/* Summary Widgets */}
             <div className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+<<<<<<< HEAD
                 {displayScores.map((s) => (
+=======
+                {results.map((s) => (
+>>>>>>> 33586b3c12d9cf297ceb385cbc6806f56dbcd155
                     <Widget
                         key={s.category}
-                        icon={s.icon}
+                        icon={categoryIconMap[s.category] || <MdCode />}
                         title={s.category}
                         subtitle={`${s.score}/${s.maxScore}`}
                     />
@@ -133,15 +243,19 @@ const ResultsView = () => {
 
             {/* Detailed Score Cards */}
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+<<<<<<< HEAD
                 {displayScores.map((s) => (
+=======
+                {results.map((s) => (
+>>>>>>> 33586b3c12d9cf297ceb385cbc6806f56dbcd155
                     <ScoreCard
                         key={s.category}
                         category={s.category}
                         score={s.score}
                         maxScore={s.maxScore}
                         feedback={s.feedback}
-                        color={s.color}
-                        icon={s.icon}
+                        color={categoryColorMap[s.category] || "blue"}
+                        icon={categoryIconMap[s.category] || <MdCode />}
                     />
                 ))}
             </div>

@@ -1,0 +1,29 @@
+Backend/.env
+Backend/__pycache__/
+Backend/*.pyc
+Backend/models_out.txt
+Backend/output.txt
+Backend/test_models.py
+Backend/test_models_full.py
+Backend/test_upload.py
+Backend/test_2.0.py
+Backend/test_both.py
+
+# Env
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Node
+node_modules/
+dist/
+build/
+.next/
+
+# IDE / temp
+.vscode/
+.idea/
+*.log
+status.txt
