@@ -2,11 +2,17 @@ import React, { createContext, useContext, useState, useCallback } from "react";
 
 type InterviewStep = "upload" | "interview" | "results";
 
-// shape of each question coming from the backend
 interface Question {
   id: number;
   category: string;
   question: string;
+}
+
+export interface ScoringResult {
+  category: string;
+  score: number;
+  maxScore: number;
+  feedback: string;
 }
 
 interface InterviewState {
@@ -16,18 +22,28 @@ interface InterviewState {
   predictedCategory: string | null;
   resumeSnippet: string | null;
   questions: Question[];
+  skillsExtracted: string[];
+  // Results from scoring
+  results: ScoringResult[];
+  isScoring: boolean;
+  // Camera proctoring
+  cameraAlerts: string[];
 }
 
 interface InterviewContextType extends InterviewState {
   setFile: (name: string) => void;
   setAnswer: (questionId: number, answer: string) => void;
-  submitInterview: () => void;
+  submitInterview: () => Promise<void>;
   resetInterview: () => void;
   goToInterview: () => void;
+  addCameraAlert: (msg: string) => void;
+  setIsScoring: (val: boolean) => void;
+  setResults: (results: ScoringResult[]) => void;
   setBackendData: (data: {
     predicted_category: string;
     resume_snippet: string;
     questions: Question[];
+    skills_extracted?: string[];
   }) => void;
 }
 
@@ -35,17 +51,23 @@ const InterviewContext = createContext<InterviewContextType | undefined>(
   undefined
 );
 
+const INITIAL_STATE: InterviewState = {
+  fileName: null,
+  currentStep: "upload",
+  answers: {},
+  predictedCategory: null,
+  resumeSnippet: null,
+  questions: [],
+  skillsExtracted: [],
+  results: [],
+  isScoring: false,
+  cameraAlerts: [],
+};
+
 export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [state, setState] = useState<InterviewState>({
-    fileName: null,
-    currentStep: "upload",
-    answers: {},
-    predictedCategory: null,
-    resumeSnippet: null,
-    questions: [],
-  });
+  const [state, setState] = useState<InterviewState>(INITIAL_STATE);
 
   const setFile = useCallback((name: string) => {
     setState((prev) => ({ ...prev, fileName: name }));
@@ -58,18 +80,35 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   }, []);
 
-  // store the response that comes back from /api/upload-resume
+  const addCameraAlert = useCallback((msg: string) => {
+    setState((prev) => ({
+      ...prev,
+      cameraAlerts: [...prev.cameraAlerts, msg],
+    }));
+  }, []);
+
+  const setIsScoring = useCallback((val: boolean) => {
+    setState((prev) => ({ ...prev, isScoring: val }));
+  }, []);
+
+  const setResults = useCallback((results: ScoringResult[]) => {
+    setState((prev) => ({ ...prev, results }));
+  }, []);
+
+  // Store the response that comes back from /api/upload-resume
   const setBackendData = useCallback(
     (data: {
       predicted_category: string;
       resume_snippet: string;
       questions: Question[];
+      skills_extracted?: string[];
     }) => {
       setState((prev) => ({
         ...prev,
         predictedCategory: data.predicted_category,
         resumeSnippet: data.resume_snippet,
         questions: data.questions,
+        skillsExtracted: data.skills_extracted || [],
       }));
     },
     []
@@ -79,19 +118,13 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
     setState((prev) => ({ ...prev, currentStep: "interview" }));
   }, []);
 
-  const submitInterview = useCallback(() => {
-    setState((prev) => ({ ...prev, currentStep: "results" }));
+  // submitInterview transitions to results; the results page fetches scores itself
+  const submitInterview = useCallback(async () => {
+    setState((prev) => ({ ...prev, currentStep: "results", results: [], isScoring: false }));
   }, []);
 
   const resetInterview = useCallback(() => {
-    setState({
-      fileName: null,
-      currentStep: "upload",
-      answers: {},
-      predictedCategory: null,
-      resumeSnippet: null,
-      questions: [],
-    });
+    setState(INITIAL_STATE);
   }, []);
 
   return (
@@ -103,6 +136,9 @@ export const InterviewProvider: React.FC<{ children: React.ReactNode }> = ({
         submitInterview,
         resetInterview,
         goToInterview,
+        addCameraAlert,
+        setIsScoring,
+        setResults,
         setBackendData,
       }}
     >

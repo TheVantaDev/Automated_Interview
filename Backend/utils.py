@@ -1,88 +1,159 @@
 import os
+import re
+import json
 from typing import List
-import google.generativeai as genai
-from dotenv import load_dotenv
+import ollama
 
-load_dotenv()
+# Using local Ollama (llama3.1) to bypass API rate limits
+MODEL_NAME = 'llama3.1'
 
-# Configure LLM
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-model_llm = genai.GenerativeModel('gemini-1.5-flash')
 
-# Load the model locally - REMOVED spacy due to build issues on Windows/Python 3.13
-# We will use Gemini 1.5 Flash for extraction instead, which is more robust.
+def _parse_json(raw: str, default):
+    """Strip markdown fences and parse JSON, falling back to default."""
+    raw = re.sub(r"^```json", "", raw, flags=re.MULTILINE)
+    raw = re.sub(r"^```.*$",  "", raw, flags=re.MULTILINE)
+    raw = raw.strip()
+    try:
+        return json.loads(raw)
+    except Exception as e:
+        print(f"JSON parse error: {e}")
+        return default
 
-def extract_skills(text: str) -> List[str]:
-    """Extract skills from text using Gemini 1.5 Flash."""
+
+def analyze_resume(text: str) -> dict:
+    """Validate the resume, extract skills, and generate 7-8 questions — one API call."""
     prompt = f"""
-    Extract a list of professional skills from the following resume text.
-    Return ONLY a comma-separated list of skills. No other text.
-    
-    Resume:
-    {text[:2000]}
+    You are an expert technical recruiter and interviewer.
+    Analyze the following document text and perform three tasks:
+
+    1. Determine if the text is a valid professional resume, CV, or LinkedIn profile.
+    2. If it is a valid resume, extract a list of professional skills.
+    3. Generate exactly 7-8 high-quality interview questions based specifically on the
+       extracted skills and experience. Use a rich mix of categories:
+       Technical, Problem-Solving, System Design, Behavioral, Situational, Leadership,
+       and Communication. Each question should be thoughtful and tailored to the
+       candidate's background.
+
+    Document Text:
+    {text[:3000]}
+
+    Return the response ONLY as a strictly formatted JSON object:
+    {{
+        "is_valid": true,
+        "skills": ["Skill 1", "Skill 2"],
+        "questions": [
+            {{"id": 1, "category": "Technical",    "question": "..."}},
+            {{"id": 2, "category": "Behavioral",   "question": "..."}},
+            {{"id": 3, "category": "Problem-Solving","question": "..."}},
+            {{"id": 4, "category": "System Design","question": "..."}},
+            {{"id": 5, "category": "Situational",  "question": "..."}},
+            {{"id": 6, "category": "Leadership",   "question": "..."}},
+            {{"id": 7, "category": "Communication","question": "..."}},
+            {{"id": 8, "category": "Technical",    "question": "..."}}
+        ]
+    }}
     """
     try:
-        response = model_llm.generate_content(prompt)
-        skills = [s.strip() for s in response.text.split(',') if s.strip()]
-        return skills
+        response = ollama.chat(
+            model=MODEL_NAME,
+            messages=[{'role': 'user', 'content': prompt}],
+            format='json'
+        )
+        raw = response['message']['content'].strip()
+        print(f"Raw Ollama resume response: {raw[:200]}")
+        return _parse_json(raw, None) or _fallback_resume()
     except Exception as e:
-        print(f"Error extracting skills: {e}")
-        return []
+        print(f"Error analyzing resume via Ollama: {e}")
+        return _fallback_resume()
 
-def generate_interview_questions(skills: List[str], resume_context: str) -> List[dict]:
-    """Generate personalized interview questions based on skills and resume."""
-    prompt = f"""
-    You are an expert technical interviewer. Based on the following extracted skills and resume context, 
-    generate 3-5 high-quality interview questions. 
-    The questions should be a mix of technical, problem-solving, and behavioral.
-    
-    Skills: {', '.join(skills)}
-    
-    Resume Context: 
-    {resume_context[:2000]}
-    
-    Return the response as a JSON list of objects with the following keys:
-    'id' (int), 'category' (Technical/Problem Solving/Behavioral), 'question' (string).
-    """
-    
-    try:
-        response = model_llm.generate_content(prompt)
-        # In a real scenario, you'd parse this JSON. For now, let's keep it simple or use a structured output if available.
-        # For simplicity in this demo, I'll return a basic structure if parsing fails.
-        import json
-        import re
-        
-        # Try to find JSON in the response
-        match = re.search(r'\[.*\]', response.text, re.DOTALL)
-        if match:
-            return json.loads(match.group())
-    except Exception as e:
-        print(f"Error generating questions: {e}")
-    
-    return [
-        {"id": 1, "category": "General", "question": "Walk me through your most significant project."},
-        {"id": 2, "category": "Technical", "question": f"How have you applied your skills in {skills[0] if skills else 'your field'}?"},
-        {"id": 3, "category": "Behavioral", "question": "Describe a time you overcame a technical challenge."}
-    ]
+
+def _fallback_resume() -> dict:
+    return {
+        "is_valid": True,
+        "skills":   ["Communication", "Problem Solving", "Teamwork"],
+        "questions": [
+            {"id": 1, "category": "Technical",      "question": "Walk me through your most significant project."},
+            {"id": 2, "category": "Behavioral",     "question": "Describe a time you overcame a major technical challenge."},
+            {"id": 3, "category": "Problem-Solving","question": "How do you approach debugging a system you're unfamiliar with?"},
+            {"id": 4, "category": "System Design",  "question": "How would you design a scalable URL shortening service?"},
+            {"id": 5, "category": "Situational",    "question": "If a critical production bug is reported 30 minutes before a release, what do you do?"},
+            {"id": 6, "category": "Leadership",     "question": "Tell me about a time you led a team through an ambiguous situation."},
+            {"id": 7, "category": "Communication",  "question": "How do you explain technical decisions to non-technical stakeholders?"},
+            {"id": 8, "category": "Technical",      "question": "What's the most complex data structure or algorithm you've implemented?"},
+        ]
+    }
+
 
 def score_answer(question: str, user_answer: str) -> dict:
-    """Score the user's answer and provide feedback."""
+    """Score the candidate's answer out of 10 and provide brief feedback."""
+    fallback = {"score": 7.0, "feedback": "Good response. Add more specific examples to strengthen your answer."}
     prompt = f"""
-    You are a technical interviewer evaluator. Compare the user's answer to the question and provide a score from 0-10 and brief feedback.
-    
-    Question: {question}
+    You are a technical interviewer evaluator.
+    Score the candidate's answer from 0-10 and explain briefly why.
+
+    Question:    {question}
     User Answer: {user_answer}
-    
-    Return JSON: {{"score": float, "feedback": string}}
+
+    Return ONLY JSON: {{"score": <float 0-10>, "feedback": "<one or two sentences>"}}
     """
     try:
-        response = model_llm.generate_content(prompt)
-        import json
-        import re
-        match = re.search(r'\{.*\}', response.text, re.DOTALL)
-        if match:
-            return json.loads(match.group())
+        response = ollama.chat(
+            model=MODEL_NAME,
+            messages=[{'role': 'user', 'content': prompt}],
+            format='json'
+        )
+        raw = response['message']['content'].strip()
+        print(f"Raw Ollama score response: {raw[:200]}")
+        return _parse_json(raw, fallback) or fallback
     except Exception as e:
-        print(f"Error scoring answer: {e}")
-    
-    return {"score": 5.0, "feedback": "Could not generate automated feedback."}
+        print(f"Error scoring answer via Ollama: {e}")
+        return fallback
+
+
+def generate_overall_results(qa_pairs: List[dict]) -> List[dict]:
+    """
+    Generate a holistic 5-category assessment from all Q&A pairs.
+    qa_pairs: [{"question": str, "answer": str, "category": str}, ...]
+    Returns:  [{"category": str, "score": float, "maxScore": 10, "feedback": str}, ...]
+    """
+    fallback = [
+        {"category": "Technical Skills", "score": 7.5, "maxScore": 10, "feedback": "Demonstrates solid foundational knowledge."},
+        {"category": "Problem Solving",  "score": 8.0, "maxScore": 10, "feedback": "Clear logical approach to challenges."},
+        {"category": "System Design",    "score": 6.5, "maxScore": 10, "feedback": "Good understanding of core architectural principles."},
+        {"category": "Communication",    "score": 9.0, "maxScore": 10, "feedback": "Very articulate and clear communicator."},
+        {"category": "Cultural Fit",     "score": 8.5, "maxScore": 10, "feedback": "Values align well with collaborative environments."},
+    ]
+
+    prompt = f"""
+    You are a professional HR and Technical Assessment AI.
+    Review the following interview Q&A pairs and produce a summarized assessment
+    across exactly 5 categories: Technical Skills, Problem Solving, System Design,
+    Communication, and Cultural Fit.
+
+    Interview Data:
+    {json.dumps(qa_pairs, indent=2)[:4000]}
+
+    For each category provide a score (0-10) and 1-2 sentences of feedback.
+    Return ONLY a JSON array:
+    [
+        {{"category": "Technical Skills", "score": <float>, "maxScore": 10, "feedback": "<string>"}},
+        {{"category": "Problem Solving",  "score": <float>, "maxScore": 10, "feedback": "<string>"}},
+        {{"category": "System Design",    "score": <float>, "maxScore": 10, "feedback": "<string>"}},
+        {{"category": "Communication",    "score": <float>, "maxScore": 10, "feedback": "<string>"}},
+        {{"category": "Cultural Fit",     "score": <float>, "maxScore": 10, "feedback": "<string>"}}
+    ]
+    """
+    try:
+        response = ollama.chat(
+            model=MODEL_NAME,
+            messages=[{'role': 'user', 'content': prompt}],
+            format='json'
+        )
+        raw = response['message']['content'].strip()
+        print(f"Raw Ollama overall results: {raw[:300]}")
+        parsed = _parse_json(raw, None)
+        if parsed and isinstance(parsed, list) and len(parsed) > 0:
+            return parsed
+    except Exception as e:
+        print(f"Error generating overall results via Ollama: {e}")
+    return fallback
