@@ -46,6 +46,9 @@ const InterviewView = () => {
 
     return (
         <div className="relative mt-3">
+            {/* Floating draggable proctoring camera */}
+            <CameraFeed />
+
             {/* ── Scoring overlay (shown while evaluating answers) ── */}
             {isScoring && (
                 <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-navy-900/80 backdrop-blur-sm">
@@ -91,56 +94,50 @@ const InterviewView = () => {
                 </div>
             </div>
 
-            {/* Two Column Layout */}
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-                {/* Left: Candidate Card + Camera */}
-                <div className="xl:col-span-4 2xl:col-span-3">
-                    <CandidateCard />
-                    <CameraFeed />
-                </div>
-
-                {/* Right: Questions */}
-                <div className="xl:col-span-8 2xl:col-span-9">
-                    <div className="space-y-5">
-                        {questions.map((q) => (
-                            <QuestionItem
-                                key={q.id}
-                                questionNumber={q.id}
-                                category={q.category}
-                                question={q.question}
-                                answer={answers[q.id] || ""}
-                                onAnswerChange={(value) => setAnswer(q.id, value)}
-                            />
-                        ))}
-                    </div>
-
-                    {/* Submit Button */}
-                    <button
-                        onClick={handleSubmit}
-                        disabled={isScoring}
-                        className={`mt-8 flex w-full items-center justify-center gap-2 rounded-xl py-4 text-base font-bold text-white shadow-lg transition-all duration-300 ${
-                            isScoring
-                                ? "cursor-not-allowed bg-gray-400 dark:bg-gray-600"
-                                : "bg-brand-500 shadow-brand-500/30 hover:bg-brand-600 hover:shadow-xl hover:shadow-brand-500/40 active:scale-[0.98] dark:bg-brand-400 dark:hover:bg-brand-500"
-                        }`}
-                    >
-                        {isScoring ? (
-                            <>
-                                <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
-                                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" strokeOpacity="0.25" />
-                                    <path d="M12 2 A10 10 0 0 1 22 12" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
-                                </svg>
-                                Evaluating…
-                            </>
-                        ) : (
-                            <>
-                                <MdSend className="h-5 w-5" />
-                                Submit Interview
-                            </>
-                        )}
-                    </button>
-                </div>
+            {/* Candidate summary strip */}
+            <div className="mb-4">
+                <CandidateCard />
             </div>
+
+            {/* Questions – full width now that camera is floating */}
+            <div className="space-y-5">
+                {questions.map((q) => (
+                    <QuestionItem
+                        key={q.id}
+                        questionNumber={q.id}
+                        category={q.category}
+                        question={q.question}
+                        answer={answers[q.id] || ""}
+                        onAnswerChange={(value) => setAnswer(q.id, value)}
+                    />
+                ))}
+            </div>
+
+            {/* Submit Button */}
+            <button
+                onClick={handleSubmit}
+                disabled={isScoring}
+                className={`mt-8 flex w-full items-center justify-center gap-2 rounded-xl py-4 text-base font-bold text-white shadow-lg transition-all duration-300 ${
+                    isScoring
+                        ? "cursor-not-allowed bg-gray-400 dark:bg-gray-600"
+                        : "bg-brand-500 shadow-brand-500/30 hover:bg-brand-600 hover:shadow-xl hover:shadow-brand-500/40 active:scale-[0.98] dark:bg-brand-400 dark:hover:bg-brand-500"
+                }`}
+            >
+                {isScoring ? (
+                    <>
+                        <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" strokeOpacity="0.25" />
+                            <path d="M12 2 A10 10 0 0 1 22 12" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+                        </svg>
+                        Evaluating…
+                    </>
+                ) : (
+                    <>
+                        <MdSend className="h-5 w-5" />
+                        Submit Interview
+                    </>
+                )}
+            </button>
         </div>
     );
 };

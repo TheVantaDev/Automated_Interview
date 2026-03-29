@@ -1,19 +1,31 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { MdCloudUpload, MdInsertDriveFile, MdClose } from "react-icons/md";
+import { MdCloudUpload, MdInsertDriveFile, MdClose, MdCheckCircle } from "react-icons/md";
 import Card from "components/card";
 import { useInterview } from "contexts/InterviewContext";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
+const STAGES = [
+    { label: "Uploading PDF…",          duration: 1500  },
+    { label: "Reading resume text…",    duration: 3000  },
+    { label: "AI analyzing skills…",    duration: 20000 },
+    { label: "Generating questions…",   duration: 20000 },
+];
+
 const ResumeUpload = () => {
     const [isDragging, setIsDragging] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [stageIndex, setStageIndex] = useState(0);
     const [error, setError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const stageTimers  = useRef<ReturnType<typeof setTimeout>[]>([]);
     const navigate = useNavigate();
     const { setFile, goToInterview, setBackendData } = useInterview();
+
+    // Clear stage timers on unmount
+    useEffect(() => () => stageTimers.current.forEach(clearTimeout), []);
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -66,16 +78,22 @@ const ResumeUpload = () => {
         if (!selectedFile) return;
 
         setIsAnalyzing(true);
+        setStageIndex(0);
         setError(null);
 
+        // Fire timed stage advances for UX feedback
+        let elapsed = 0;
+        stageTimers.current = STAGES.slice(0, -1).map((s, i) => {
+            elapsed += s.duration;
+            return setTimeout(() => setStageIndex(i + 1), elapsed);
+        });
+
         try {
-            // send the PDF to the FastAPI backend
             const formData = new FormData();
             formData.append("file", selectedFile);
 
-            // Local Ollama inference can take 30-60 seconds, so we set a generous timeout
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 seconds
+            const timeoutId = setTimeout(() => controller.abort(), 180000);
 
             const response = await fetch(`${API_BASE_URL}/api/upload-resume`, {
                 method: "POST",
@@ -84,36 +102,31 @@ const ResumeUpload = () => {
             });
 
             clearTimeout(timeoutId);
+            stageTimers.current.forEach(clearTimeout);
 
             if (!response.ok) {
                 const errBody = await response.json().catch(() => null);
-                throw new Error(
-                    errBody?.detail || `Server returned ${response.status}`
-                );
+                throw new Error(errBody?.detail || `Server returned ${response.status}`);
             }
 
             const data = await response.json();
-            console.log("Backend Response:", data);
-
-            // push everything into shared context so other views can use it
             setFile(data.filename);
             setBackendData({
                 predicted_category: data.predicted_category,
-                resume_snippet: data.resume_snippet,
-                questions: data.questions,
-                skills_extracted: data.skills_extracted,
+                resume_snippet:     data.resume_snippet,
+                questions:          data.questions,
+                skills_extracted:   data.skills_extracted,
             });
 
             goToInterview();
             navigate("/admin/interview");
-
         } catch (err: any) {
-            // network errors, backend down, bad PDF, etc.
+            stageTimers.current.forEach(clearTimeout);
             const message =
                 err.name === "AbortError"
-                    ? "The AI is taking too long. Please try again."
+                    ? "The AI is taking too long (>3 min). Try restarting Ollama."
                     : err.message === "Failed to fetch"
-                    ? "Could not reach the backend. Is the FastAPI server running on port 8000?"
+                    ? "Cannot reach the backend. Is FastAPI running on port 8000?"
                     : err.message;
             setError(message);
         } finally {
@@ -221,41 +234,57 @@ const ResumeUpload = () => {
                     </div>
                 )}
 
+                {/* Stage progress (visible while analyzing) */}
+                {isAnalyzing && (
+                    <div className="mt-6 space-y-2">
+                        <p className="text-center text-xs font-semibold uppercase tracking-wider text-gray-400">
+                            AI Processing — this uses a local model and takes ~45 s
+                        </p>
+                        {STAGES.map((s, i) => (
+                            <div key={i} className="flex items-center gap-3">
+                                <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-white transition-all duration-500 ${
+                                    i < stageIndex
+                                        ? "bg-green-500"
+                                        : i === stageIndex
+                                        ? "bg-brand-500"
+                                        : "bg-gray-200 dark:bg-navy-600"
+                                }`}>
+                                    {i < stageIndex ? (
+                                        <MdCheckCircle className="h-4 w-4" />
+                                    ) : i === stageIndex ? (
+                                        <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.3"/>
+                                            <path fill="currentColor" opacity="0.85" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                                        </svg>
+                                    ) : (
+                                        <span className="h-2 w-2 rounded-full bg-gray-400" />
+                                    )}
+                                </div>
+                                <span className={`text-sm font-medium transition-colors ${
+                                    i < stageIndex
+                                        ? "text-green-500 line-through opacity-60"
+                                        : i === stageIndex
+                                        ? "text-brand-500 dark:text-brand-400"
+                                        : "text-gray-400"
+                                }`}>
+                                    {s.label}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
                 {/* Analyze Button */}
                 <button
                     onClick={handleAnalyze}
                     disabled={!selectedFile || isAnalyzing}
-                    className={`mt-8 flex w-full items-center justify-center gap-2 rounded-xl py-4 text-base font-bold text-white transition-all duration-300 ${selectedFile && !isAnalyzing
-                        ? "bg-brand-500 shadow-lg shadow-brand-500/30 hover:bg-brand-600 hover:shadow-xl hover:shadow-brand-500/40 active:scale-[0.98] dark:bg-brand-400 dark:hover:bg-brand-500"
-                        : "cursor-not-allowed bg-gray-300 dark:bg-gray-600"
-                        }`}
+                    className={`mt-6 flex w-full items-center justify-center gap-2 rounded-xl py-4 text-base font-bold text-white transition-all duration-300 ${
+                        selectedFile && !isAnalyzing
+                            ? "bg-brand-500 shadow-lg shadow-brand-500/30 hover:bg-brand-600 hover:shadow-xl hover:shadow-brand-500/40 active:scale-[0.98] dark:bg-brand-400 dark:hover:bg-brand-500"
+                            : "cursor-not-allowed bg-gray-300 dark:bg-gray-600"
+                    }`}
                 >
-                    {isAnalyzing ? (
-                        <>
-                            <svg
-                                className="h-5 w-5 animate-spin"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                            >
-                                <circle
-                                    className="opacity-25"
-                                    cx="12"
-                                    cy="12"
-                                    r="10"
-                                    stroke="currentColor"
-                                    strokeWidth="4"
-                                />
-                                <path
-                                    className="opacity-75"
-                                    fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                                />
-                            </svg>
-                            Analyzing with Local AI (may take up to 60s)...
-                        </>
-                    ) : (
-                        "Analyze Resume"
-                    )}
+                    {isAnalyzing ? "Processing with Ollama AI…" : "Analyze Resume"}
                 </button>
             </Card>
         </div>

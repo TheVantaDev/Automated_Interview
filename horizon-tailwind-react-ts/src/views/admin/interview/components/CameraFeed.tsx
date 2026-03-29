@@ -1,267 +1,311 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { MdVideocam, MdVideocamOff, MdWarning, MdCheckCircle, MdPeople } from "react-icons/md";
+import {
+    MdVideocam, MdVideocamOff, MdWarning, MdCheckCircle,
+    MdPeople, MdOpenWith, MdClose,
+} from "react-icons/md";
 import { useInterview } from "contexts/InterviewContext";
 
 const API_BASE = "http://localhost:8000";
-const CAPTURE_INTERVAL_MS = 5000; // capture + analyse every 5 seconds
+const CAPTURE_INTERVAL_MS = 5000;
 
-type ProctorStatus = "idle" | "ok" | "no-face" | "multi-face" | "error";
+type ProctorStatus = "idle" | "requesting" | "ok" | "no-face" | "multi-face" | "looking-away" | "error";
 
 interface ProctorLog {
-  time: string;
-  message: string;
-  type: "ok" | "warn" | "error";
+    time: string;
+    message: string;
+    type: "ok" | "warn" | "error";
 }
 
+// Default bottom-right corner position
+const DEFAULT_POS = { x: window.innerWidth - 292, y: window.innerHeight - 260 };
+
 const CameraFeed: React.FC = () => {
-  const videoRef  = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+    const videoRef  = useRef<HTMLVideoElement>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const [cameraActive, setCameraActive]   = useState(false);
-  const [shutterOpen,  setShutterOpen]    = useState(false);   // iris open animation
-  const [permDenied,   setPermDenied]     = useState(false);
-  const [status,       setStatus]         = useState<ProctorStatus>("idle");
-  const [confidence,   setConfidence]     = useState<number>(0);
-  const [log,          setLog]            = useState<ProctorLog[]>([]);
-  const [faceCount,    setFaceCount]      = useState<number>(0);
-  const [flash,        setFlash]          = useState(false);   // capture flash effect
+    const [cameraActive, setCameraActive] = useState(false);
+    const [shutterOpen,  setShutterOpen]  = useState(false);
+    const [permDenied,   setPermDenied]   = useState(false);
+    const [status,       setStatus]       = useState<ProctorStatus>("requesting");
+    const [confidence,   setConfidence]   = useState(0);
+    const [log,          setLog]          = useState<ProctorLog[]>([]);
+    const [flash,        setFlash]        = useState(false);
+    const [minimised,    setMinimised]    = useState(false);
 
-  const { addCameraAlert } = useInterview();
+    // Dragging state
+    const [pos,      setPos]      = useState(DEFAULT_POS);
+    const dragging   = useRef(false);
+    const dragOffset = useRef({ x: 0, y: 0 });
 
-  const pushLog = useCallback((message: string, type: ProctorLog["type"]) => {
-    const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    setLog((prev) => [{ time, message, type }, ...prev].slice(0, 5)); // keep last 5
-  }, []);
+    const { addCameraAlert } = useInterview();
 
-  // ── Start webcam ──────────────────────────────────────────────────────────
-  const startCamera = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-      setCameraActive(true);
-      setPermDenied(false);
-      // Iris open animation
-      setTimeout(() => setShutterOpen(true), 100);
-      pushLog("Camera connected", "ok");
-    } catch {
-      setPermDenied(true);
-      pushLog("Camera access denied", "error");
-    }
-  }, [pushLog]);
+    // Consecutive-fail buffer — only alert after 2 consecutive bad frames
+    // This eliminates single-frame glitches causing false alerts
+    const failBuffer = useRef<string[]>([]); // stores last 2 problem types
+    const ALERT_THRESHOLD = 2;              // frames in a row before alerting
 
-  // ── Capture + send frame ──────────────────────────────────────────────────
-  const captureAndAnalyse = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !cameraActive) return;
+    const pushLog = useCallback((message: string, type: ProctorLog["type"]) => {
+        const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        setLog((prev) => [{ time, message, type }, ...prev].slice(0, 4));
+    }, []);
 
-    const video  = videoRef.current;
-    const canvas = canvasRef.current;
-    canvas.width  = video.videoWidth  || 640;
-    canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    // ── Camera start ──────────────────────────────────────────────────────────
+    const startCamera = useCallback(async () => {
+        setStatus("requesting");
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+                audio: false,
+            });
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                await videoRef.current.play();
+            }
+            setCameraActive(true);
+            setPermDenied(false);
+            setStatus("idle");
+            setTimeout(() => setShutterOpen(true), 200);
+            pushLog("📷 Camera active – proctoring on", "ok");
+        } catch {
+            setPermDenied(true);
+            setStatus("error");
+            pushLog("Camera permission denied", "error");
+        }
+    }, [pushLog]);
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const b64 = canvas.toDataURL("image/jpeg", 0.7); // compress a bit
+    useEffect(() => {
+        startCamera();
+        return () => {
+            const video = videoRef.current;
+            if (video?.srcObject) (video.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+        };
+    }, []); // eslint-disable-line
 
-    // Visual flash  
-    setFlash(true);
-    setTimeout(() => setFlash(false), 200);
+    // ── Periodic frame analysis ───────────────────────────────────────────────
+    const captureAndAnalyse = useCallback(async () => {
+        if (!videoRef.current || !canvasRef.current || !cameraActive) return;
+        const video = videoRef.current, canvas = canvasRef.current;
+        canvas.width  = video.videoWidth  || 640;
+        canvas.height = video.videoHeight || 480;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const b64 = canvas.toDataURL("image/jpeg", 0.7);
 
-    try {
-      const res = await fetch(`${API_BASE}/api/analyze-frame`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ frame: b64 }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+        setFlash(true);
+        setTimeout(() => setFlash(false), 120);
 
-      setFaceCount(data.face_count ?? 0);
-      setConfidence(data.confidence ?? 0);
+        try {
+            const res  = await fetch(`${API_BASE}/api/analyze-frame`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ frame: b64 }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
 
-      if (data.face_count === 0) {
-        setStatus("no-face");
-        const msg = "⚠ No face detected";
-        pushLog(msg, "warn");
-        addCameraAlert(msg);
-      } else if (data.face_count > 1) {
-        setStatus("multi-face");
-        const msg = `⚠ ${data.face_count} faces detected`;
-        pushLog(msg, "warn");
-        addCameraAlert(msg);
-      } else {
-        setStatus("ok");
-        pushLog(`✓ Face confirmed (${Math.round((data.confidence ?? 0) * 100)}%)`, "ok");
-      }
-    } catch {
-      setStatus("error");
-      pushLog("Frame analysis failed", "error");
-    }
-  }, [cameraActive, addCameraAlert, pushLog]);
+            setConfidence(data.confidence ?? 0);
+            const susps: string[] = data.suspicion ?? [];
 
-  // ── Periodic capture ──────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!cameraActive) return;
-    // First capture after 1 second
-    const first = setTimeout(() => captureAndAnalyse(), 1000);
-    const interval = setInterval(captureAndAnalyse, CAPTURE_INTERVAL_MS);
-    return () => { clearTimeout(first); clearInterval(interval); };
-  }, [cameraActive, captureAndAnalyse]);
+            // ── Determine current frame problem type ──────────────────────────
+            let currentProblem = "ok";
+            if (susps.some((s: string) => s.includes("away") || s.includes("sideways"))) {
+                currentProblem = "looking-away";
+            } else if (data.face_count === 0) {
+                currentProblem = "no-face";
+            } else if (data.face_count > 1) {
+                currentProblem = "multi-face";
+            } else if (susps.some((s: string) => s.includes("far"))) {
+                currentProblem = "too-far";
+            }
 
-  // ── Cleanup on unmount ────────────────────────────────────────────────────
-  useEffect(() => {
-    return () => {
-      const stream = videoRef.current?.srcObject as MediaStream | null;
-      stream?.getTracks().forEach((t) => t.stop());
+            // ── Temporal smoothing — push to rolling buffer ───────────────────
+            failBuffer.current = [...failBuffer.current, currentProblem].slice(-ALERT_THRESHOLD);
+            const consecutiveSame =
+                failBuffer.current.length === ALERT_THRESHOLD &&
+                failBuffer.current.every((v) => v === currentProblem);
+
+            if (currentProblem === "ok") {
+                // Clear buffer on a good frame
+                failBuffer.current = [];
+                setStatus("ok");
+                pushLog(`\u2713 Face detected (${Math.round((data.confidence ?? 0) * 100)}%)`, "ok");
+            } else if (consecutiveSame) {
+                // Only alert after ALERT_THRESHOLD consecutive identical problems
+                if (currentProblem === "looking-away") {
+                    setStatus("looking-away");
+                    const msg = "\ud83d\udc40 Looking away from screen";
+                    pushLog(msg, "warn");
+                    addCameraAlert(msg);
+                } else if (currentProblem === "no-face") {
+                    setStatus("no-face");
+                    const msg = "\u26a0 No face detected";
+                    pushLog(msg, "warn");
+                    addCameraAlert(msg);
+                } else if (currentProblem === "multi-face") {
+                    setStatus("multi-face");
+                    const msg = `\u26a0 ${data.face_count} faces detected`;
+                    pushLog(msg, "warn");
+                    addCameraAlert(msg);
+                } else if (currentProblem === "too-far") {
+                    setStatus("looking-away");
+                    const msg = "\u2194 Move closer to the camera";
+                    pushLog(msg, "warn");
+                    addCameraAlert(msg);
+                }
+            } else {
+                // First occurrence of a problem — update status display but don't alert yet
+                setStatus(currentProblem === "ok" ? "ok" : currentProblem as ProctorStatus);
+            }
+        } catch {
+            setStatus("error");
+        }
+    }, [cameraActive, addCameraAlert, pushLog]);
+
+    useEffect(() => {
+        if (!cameraActive) return;
+        const first    = setTimeout(() => captureAndAnalyse(), 1500);
+        const interval = setInterval(captureAndAnalyse, CAPTURE_INTERVAL_MS);
+        return () => { clearTimeout(first); clearInterval(interval); };
+    }, [cameraActive, captureAndAnalyse]);
+
+    // ── Drag handlers (pointer events) ────────────────────────────────────────
+    const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+        // Only drag from the header bar
+        dragging.current = true;
+        dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+        (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
     };
-  }, []);
+    const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!dragging.current) return;
+        const nx = e.clientX - dragOffset.current.x;
+        const ny = e.clientY - dragOffset.current.y;
+        // Clamp inside viewport
+        setPos({
+            x: Math.max(0, Math.min(nx, window.innerWidth  - 280)),
+            y: Math.max(0, Math.min(ny, window.innerHeight - 60)),
+        });
+    };
+    const onPointerUp = () => { dragging.current = false; };
 
-  // ── UI helpers ────────────────────────────────────────────────────────────
-  const statusConfig: Record<ProctorStatus, { label: string; color: string; dot: string }> = {
-    idle:       { label: "Waiting…",           color: "text-gray-400",  dot: "bg-gray-400" },
-    ok:         { label: "Face Detected",       color: "text-green-500", dot: "bg-green-500" },
-    "no-face":  { label: "No Face – Alert!",    color: "text-red-500",   dot: "bg-red-500"   },
-    "multi-face":{ label: "Multiple Faces!",    color: "text-yellow-500",dot: "bg-yellow-500"},
-    error:      { label: "Analysis Error",      color: "text-red-400",   dot: "bg-red-400"   },
-  };
-  const sc = statusConfig[status];
+    // ── Status config ─────────────────────────────────────────────────────────
+    const statusConfig: Record<ProctorStatus, { label: string; color: string; dot: string; bg: string }> = {
+        requesting:    { label: "Requesting…",      color: "text-brand-400",   dot: "bg-brand-400",   bg: "bg-navy-900/70 text-brand-300"    },
+        idle:          { label: "Ready",             color: "text-gray-400",    dot: "bg-gray-400",    bg: "bg-gray-900/70 text-gray-300"     },
+        ok:            { label: "All Clear",         color: "text-green-400",   dot: "bg-green-400",   bg: "bg-green-900/70 text-green-300"   },
+        "no-face":     { label: "No Face!",          color: "text-red-400",     dot: "bg-red-500",     bg: "bg-red-900/70 text-red-300"       },
+        "multi-face":  { label: "Multiple Faces!",   color: "text-yellow-400",  dot: "bg-yellow-400",  bg: "bg-yellow-900/70 text-yellow-300" },
+        "looking-away":{ label: "Looking Away!",     color: "text-orange-400",  dot: "bg-orange-400",  bg: "bg-orange-900/70 text-orange-300" },
+        error:         { label: "Cam Error",         color: "text-red-400",     dot: "bg-red-400",     bg: "bg-red-900/70 text-red-300"       },
+    };
+    const sc = statusConfig[status];
 
-  return (
-    <div className="mt-4 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-md dark:border-white/10 dark:bg-navy-800">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-white/10">
-        <div className="flex items-center gap-2">
-          <MdVideocam className="h-5 w-5 text-brand-500 dark:text-brand-400" />
-          <span className="text-sm font-bold text-navy-700 dark:text-white">Proctoring Camera</span>
-        </div>
-        {cameraActive && (
-          <div className="flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full animate-pulse ${sc.dot}`} />
-            <span className={`text-xs font-semibold ${sc.color}`}>{sc.label}</span>
-          </div>
-        )}
-      </div>
-
-      {/* ── Camera viewport ── */}
-      <div className="relative aspect-video w-full overflow-hidden bg-gray-950">
-
-        {/* Actual video */}
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          className={`h-full w-full object-cover transition-opacity duration-700 ${cameraActive && shutterOpen ? "opacity-100" : "opacity-0"}`}
-        />
-
-        {/* Capture flash */}
-        {flash && (
-          <div className="pointer-events-none absolute inset-0 animate-ping bg-white/20" />
-        )}
-
-        {/* Iris / Shutter overlay – slides away when camera is active */}
+    return (
         <div
-          className={`absolute inset-0 flex items-center justify-center transition-all duration-700 ${shutterOpen ? "opacity-0 scale-0" : "opacity-100 scale-100"}`}
-          style={{ pointerEvents: shutterOpen ? "none" : "auto" }}
+            style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 9999, width: 280 }}
+            className="select-none overflow-hidden rounded-2xl border border-white/10 bg-navy-900 shadow-2xl shadow-black/50"
         >
-          {/* Camera iris SVG */}
-          <svg viewBox="0 0 120 120" className="h-28 w-28 text-brand-500/80 dark:text-brand-400/80" fill="currentColor">
-            {/* 6-blade iris */}
-            {[0,60,120,180,240,300].map((angle) => (
-              <path
-                key={angle}
-                d="M60 60 L75 30 A20 20 0 0 1 95 50 Z"
-                transform={`rotate(${angle} 60 60)`}
-                className="transition-transform duration-700"
-              />
-            ))}
-            <circle cx="60" cy="60" r="10" fill="white" className="opacity-70" />
-          </svg>
-        </div>
-
-        {/* Permission denied overlay */}
-        {permDenied && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gray-950/90">
-            <MdVideocamOff className="h-10 w-10 text-red-400" />
-            <p className="text-sm font-semibold text-red-400">Camera access denied</p>
-            <p className="text-xs text-gray-400">Allow camera in browser settings</p>
-          </div>
-        )}
-
-        {/* Status corner badge when camera is active */}
-        {cameraActive && status !== "idle" && (
-          <div className={`absolute left-2 top-2 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold backdrop-blur-sm
-            ${status === "ok"
-              ? "bg-green-900/70 text-green-300"
-              : status === "multi-face"
-              ? "bg-yellow-900/70 text-yellow-300"
-              : "bg-red-900/70 text-red-300"
-            }`}>
-            {status === "ok"
-              ? <MdCheckCircle className="h-3.5 w-3.5" />
-              : status === "multi-face"
-              ? <MdPeople className="h-3.5 w-3.5" />
-              : <MdWarning className="h-3.5 w-3.5" />}
-            {sc.label}
-          </div>
-        )}
-
-        {/* Confidence bar */}
-        {cameraActive && status === "ok" && (
-          <div className="absolute bottom-0 left-0 right-0 px-2 pb-1">
-            <div className="h-1 w-full overflow-hidden rounded-full bg-white/20">
-              <div
-                className="h-full rounded-full bg-green-400 transition-all duration-500"
-                style={{ width: `${Math.round(confidence * 100)}%` }}
-              />
+            {/* ── Drag handle / header ── */}
+            <div
+                className="flex cursor-grab items-center justify-between bg-navy-800 px-3 py-2 active:cursor-grabbing"
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+            >
+                <div className="flex items-center gap-2">
+                    <MdOpenWith className="h-4 w-4 text-gray-400" />
+                    <MdVideocam className="h-4 w-4 text-brand-400" />
+                    <span className="text-xs font-bold text-white">Proctoring</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                        <span className={`h-2 w-2 animate-pulse rounded-full ${sc.dot}`} />
+                        <span className={`text-xs font-semibold ${sc.color}`}>{sc.label}</span>
+                    </div>
+                    <button
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => setMinimised((v) => !v)}
+                        className="ml-1 rounded p-0.5 hover:bg-white/10 text-gray-400 hover:text-white"
+                    >
+                        <MdClose className="h-3.5 w-3.5" />
+                    </button>
+                </div>
             </div>
-          </div>
-        )}
 
-        {/* Hidden canvas for frame capture */}
-        <canvas ref={canvasRef} className="hidden" />
-      </div>
+            {/* ── Body (hides when minimised) ── */}
+            {!minimised && (
+                <>
+                    {/* Viewport */}
+                    <div className="relative aspect-video w-full bg-gray-950">
+                        <video
+                            ref={videoRef}
+                            autoPlay muted playsInline
+                            className={`h-full w-full object-cover transition-opacity duration-700 ${cameraActive && shutterOpen ? "opacity-100" : "opacity-0"}`}
+                        />
 
-      {/* ── Start camera button ── */}
-      {!cameraActive && !permDenied && (
-        <div className="p-3">
-          <button
-            onClick={startCamera}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-500 py-2.5 text-sm font-bold text-white shadow-lg shadow-brand-500/30 transition-all duration-200 hover:bg-brand-600 hover:shadow-brand-500/40 active:scale-[0.98] dark:bg-brand-400 dark:hover:bg-brand-500"
-          >
-            <MdVideocam className="h-4 w-4" />
-            Open Camera Shutter
-          </button>
+                        {/* Iris shutter */}
+                        <div className={`pointer-events-none absolute inset-0 flex items-center justify-center bg-gray-950 transition-all duration-700 ${shutterOpen ? "opacity-0" : "opacity-100"}`}>
+                            <svg viewBox="0 0 120 120" className="h-20 w-20 text-brand-500" fill="currentColor">
+                                {[0,60,120,180,240,300].map((a) => (
+                                    <path key={a} d="M60 60 L75 30 A20 20 0 0 1 95 50 Z" transform={`rotate(${a} 60 60)`} />
+                                ))}
+                                <circle cx="60" cy="60" r="8" fill="white" opacity="0.8" />
+                            </svg>
+                        </div>
+
+                        {/* Denied overlay */}
+                        {permDenied && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gray-950/95">
+                                <MdVideocamOff className="h-8 w-8 text-red-400" />
+                                <p className="text-xs font-semibold text-red-400">Camera denied</p>
+                                <button onClick={startCamera} className="rounded-lg bg-brand-500 px-3 py-1 text-xs font-bold text-white hover:bg-brand-600">
+                                    Retry
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Status badge */}
+                        {cameraActive && status !== "idle" && status !== "requesting" && (
+                            <div className={`absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold backdrop-blur-sm ${sc.bg}`}>
+                                {status === "ok"           ? <MdCheckCircle className="h-3 w-3" />
+                                : status === "multi-face"  ? <MdPeople      className="h-3 w-3" />
+                                :                            <MdWarning      className="h-3 w-3" />}
+                                {sc.label}
+                            </div>
+                        )}
+
+                        {/* Confidence bar */}
+                        {status === "ok" && (
+                            <div className="absolute bottom-0 left-0 right-0 px-1.5 pb-1">
+                                <div className="h-1 w-full overflow-hidden rounded-full bg-white/20">
+                                    <div className="h-full rounded-full bg-green-400 transition-all duration-500" style={{ width: `${Math.round(confidence * 100)}%` }} />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Flash */}
+                        {flash && <div className="pointer-events-none absolute inset-0 bg-white/10" />}
+                        <canvas ref={canvasRef} className="hidden" />
+                    </div>
+
+                    {/* Proctoring log */}
+                    {log.length > 0 && (
+                        <div className="px-3 py-2">
+                            <ul className="space-y-0.5">
+                                {log.map((entry, i) => (
+                                    <li key={i} className="flex items-start gap-1.5 text-xs">
+                                        <span className="shrink-0 text-gray-500">{entry.time}</span>
+                                        <span className={entry.type === "ok" ? "text-green-400" : entry.type === "warn" ? "text-yellow-400" : "text-red-400"}>
+                                            {entry.message}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </>
+            )}
         </div>
-      )}
-
-      {/* ── Proctoring log ── */}
-      {log.length > 0 && (
-        <div className="border-t border-gray-100 px-4 py-3 dark:border-white/10">
-          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-400">Proctoring Log</p>
-          <ul className="space-y-1">
-            {log.map((entry, i) => (
-              <li key={i} className="flex items-start gap-2 text-xs">
-                <span className="shrink-0 text-gray-400">{entry.time}</span>
-                <span className={
-                  entry.type === "ok" ? "text-green-500 dark:text-green-400"
-                  : entry.type === "warn" ? "text-yellow-500 dark:text-yellow-400"
-                  : "text-red-500 dark:text-red-400"
-                }>
-                  {entry.message}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
+    );
 };
 
 export default CameraFeed;

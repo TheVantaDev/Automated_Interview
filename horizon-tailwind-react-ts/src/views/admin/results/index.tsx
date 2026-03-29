@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-import React, { useMemo } from "react";
-=======
 import React, { useEffect, useState } from "react";
->>>>>>> 33586b3c12d9cf297ceb385cbc6806f56dbcd155
 import { useNavigate } from "react-router-dom";
 import {
     MdCode,
@@ -12,7 +8,6 @@ import {
     MdFavorite,
     MdRefresh,
     MdEmojiEvents,
-    MdStarOutline,
     MdVideocam,
     MdWarning,
     MdCheckCircle,
@@ -21,61 +16,26 @@ import Widget from "components/widget/Widget";
 import ScoreCard from "./components/ScoreCard";
 import { useInterview } from "contexts/InterviewContext";
 
-<<<<<<< HEAD
-const getIconForCategory = (category: string) => {
-    const lower = category.toLowerCase();
-    if (lower.includes("tech") || lower.includes("code")) return <MdCode className="h-6 w-6" />;
-    if (lower.includes("problem") || lower.includes("logic")) return <MdPsychology className="h-6 w-6" />;
-    if (lower.includes("system") || lower.includes("design")) return <MdArchitecture className="h-6 w-6" />;
-    if (lower.includes("communication") || lower.includes("team")) return <MdGroups className="h-6 w-6" />;
-    if (lower.includes("behavior") || lower.includes("culture")) return <MdFavorite className="h-6 w-6" />;
-    return <MdStarOutline className="h-6 w-6" />;
-};
-
-const getColorForCategory = (index: number): "blue" | "orange" | "teal" | "green" | "purple" => {
-    const colors: ("blue" | "orange" | "teal" | "green" | "purple")[] = ["blue", "orange", "teal", "green", "purple"];
-    return colors[index % colors.length];
-=======
 const API_BASE_URL = "http://localhost:8000";
 
 const categoryIconMap: Record<string, JSX.Element> = {
     "Technical Skills": <MdCode className="h-6 w-6" />,
-    "Problem Solving": <MdPsychology className="h-6 w-6" />,
-    "System Design": <MdArchitecture className="h-6 w-6" />,
-    Communication: <MdGroups className="h-6 w-6" />,
-    "Cultural Fit": <MdFavorite className="h-6 w-6" />,
+    "Problem Solving":  <MdPsychology className="h-6 w-6" />,
+    "System Design":    <MdArchitecture className="h-6 w-6" />,
+    "Communication":    <MdGroups className="h-6 w-6" />,
+    "Cultural Fit":     <MdFavorite className="h-6 w-6" />,
 };
 
 const categoryColorMap: Record<string, "blue" | "orange" | "teal" | "green" | "purple"> = {
     "Technical Skills": "blue",
-    "Problem Solving": "orange",
-    "System Design": "teal",
-    Communication: "green",
-    "Cultural Fit": "purple",
->>>>>>> 33586b3c12d9cf297ceb385cbc6806f56dbcd155
+    "Problem Solving":  "orange",
+    "System Design":    "teal",
+    "Communication":    "green",
+    "Cultural Fit":     "purple",
 };
 
 const ResultsView = () => {
     const navigate = useNavigate();
-<<<<<<< HEAD
-    const { resetInterview, fileName, currentStep, scores: rawScores, cameraAlerts } = useInterview();
-
-
-    const displayScores = useMemo(() => {
-        if (!rawScores || rawScores.length === 0) return [];
-        return rawScores.map((s, idx) => ({
-            category: s.category || `Question ${idx + 1}`,
-            score: s.score || 0,
-            maxScore: s.maxScore || 10,
-            color: getColorForCategory(idx),
-            icon: getIconForCategory(s.category || ""),
-            feedback: s.feedback || "No feedback provided."
-        }));
-    }, [rawScores]);
-
-    const totalScore = displayScores.reduce((sum, s) => sum + s.score, 0);
-    const maxTotal = displayScores.reduce((sum, s) => sum + s.maxScore, 0);
-=======
     const {
         resetInterview,
         fileName,
@@ -85,34 +45,32 @@ const ResultsView = () => {
         results,
         setResults,
         isScoring,
-        setIsScoring
+        setIsScoring,
+        cameraAlerts,
     } = useInterview();
 
     const [error, setError] = useState<string | null>(null);
 
+    // Fetch overall assessment from backend when we arrive at results page
     useEffect(() => {
         const fetchResults = async () => {
-            // only run if we have answers and haven't fetched results yet
             if (currentStep === "results" && results.length === 0 && !isScoring) {
                 setIsScoring(true);
                 setError(null);
-
                 try {
-                    const interview_data = questions.map(q => ({
+                    const interview_data = questions.map((q) => ({
                         question: q.question,
-                        answer: answers[q.id] || "No answer provided.",
-                        category: q.category
+                        answer:   answers[q.id] || "No answer provided.",
+                        category: q.category,
                     }));
 
                     const response = await fetch(`${API_BASE_URL}/api/generate-results`, {
-                        method: "POST",
+                        method:  "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ interview_data }),
+                        body:    JSON.stringify({ interview_data }),
                     });
 
-                    if (!response.ok) {
-                        throw new Error("Failed to generate assessment. Please try again.");
-                    }
+                    if (!response.ok) throw new Error("Failed to generate assessment. Please try again.");
 
                     const data = await response.json();
                     setResults(data.results);
@@ -123,13 +81,11 @@ const ResultsView = () => {
                 }
             }
         };
-
         fetchResults();
     }, [currentStep, questions, answers, results.length, isScoring, setIsScoring, setResults]);
 
-    const totalScore = results.reduce((sum, s) => sum + s.score, 0);
-    const maxTotal = results.reduce((sum, s) => sum + s.maxScore, 0);
->>>>>>> 33586b3c12d9cf297ceb385cbc6806f56dbcd155
+    const totalScore       = results.reduce((sum, s) => sum + s.score, 0);
+    const maxTotal         = results.reduce((sum, s) => sum + s.maxScore, 0);
     const overallPercentage = maxTotal > 0 ? Math.round((totalScore / maxTotal) * 100) : 0;
 
     const handleNewInterview = () => {
@@ -137,6 +93,7 @@ const ResultsView = () => {
         navigate("/admin/default");
     };
 
+    // ── Guards ────────────────────────────────────────────────────────────────
     if (currentStep !== "results") {
         return (
             <div className="mt-12 text-center">
@@ -156,9 +113,9 @@ const ResultsView = () => {
     if (isScoring) {
         return (
             <div className="mt-20 flex flex-col items-center justify-center">
-                <div className="h-16 w-16 animate-spin rounded-full border-b-2 border-t-2 border-brand-500"></div>
+                <div className="h-16 w-16 animate-spin rounded-full border-b-2 border-t-2 border-brand-500" />
                 <h2 className="mt-6 text-2xl font-bold text-navy-700 dark:text-white">
-                    Analyzing Your Interview...
+                    Analyzing Your Interview…
                 </h2>
                 <p className="mt-2 text-gray-500 dark:text-gray-400">
                     Our AI is evaluating your responses across 5 categories.
@@ -181,44 +138,33 @@ const ResultsView = () => {
         );
     }
 
+    // ── Main results view ─────────────────────────────────────────────────────
     return (
         <div className="mt-3">
             {/* Overall Score Header */}
             <div className="mb-6 rounded-2xl bg-gradient-to-r from-brand-400 to-brand-600 p-8 shadow-xl shadow-brand-500/25 dark:from-brand-500 dark:to-brand-700">
                 <div className="flex flex-col items-center justify-between gap-6 md:flex-row">
                     <div className="text-center md:text-left">
-                        <p className="text-sm font-medium text-white/80">
-                            Interview Complete
-                        </p>
-                        <h2 className="mt-1 text-3xl font-bold text-white">
-                            Overall Assessment
-                        </h2>
+                        <p className="text-sm font-medium text-white/80">Interview Complete</p>
+                        <h2 className="mt-1 text-3xl font-bold text-white">Overall Assessment</h2>
                         {fileName && (
-                            <p className="mt-2 text-sm text-white/70">
-                                Resume: {fileName}
-                            </p>
+                            <p className="mt-2 text-sm text-white/70">Resume: {fileName}</p>
                         )}
                     </div>
                     <div className="flex items-center gap-6">
                         <div className="text-center">
                             <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-white/30 bg-white/10 backdrop-blur-sm">
-                                <span className="text-3xl font-bold text-white">
-                                    {overallPercentage}%
-                                </span>
+                                <span className="text-3xl font-bold text-white">{overallPercentage}%</span>
                             </div>
                             <p className="mt-2 text-sm font-medium text-white/80">
-                                {totalScore}/{maxTotal} Points
+                                {totalScore.toFixed(1)}/{maxTotal} Points
                             </p>
                         </div>
                         <div className="hidden h-16 w-px bg-white/20 md:block" />
                         <div className="hidden flex-col items-center md:flex">
                             <MdEmojiEvents className="h-10 w-10 text-yellow-300" />
                             <p className="mt-1 text-sm font-bold text-white">
-                                {overallPercentage >= 80
-                                    ? "Strong Hire"
-                                    : overallPercentage >= 60
-                                        ? "Potential Hire"
-                                        : "Needs Review"}
+                                {overallPercentage >= 80 ? "Strong Hire" : overallPercentage >= 60 ? "Potential Hire" : "Needs Review"}
                             </p>
                         </div>
                     </div>
@@ -227,14 +173,10 @@ const ResultsView = () => {
 
             {/* Summary Widgets */}
             <div className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-<<<<<<< HEAD
-                {displayScores.map((s) => (
-=======
                 {results.map((s) => (
->>>>>>> 33586b3c12d9cf297ceb385cbc6806f56dbcd155
                     <Widget
                         key={s.category}
-                        icon={categoryIconMap[s.category] || <MdCode />}
+                        icon={categoryIconMap[s.category] || <MdCode className="h-6 w-6" />}
                         title={s.category}
                         subtitle={`${s.score}/${s.maxScore}`}
                     />
@@ -243,11 +185,7 @@ const ResultsView = () => {
 
             {/* Detailed Score Cards */}
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-<<<<<<< HEAD
-                {displayScores.map((s) => (
-=======
                 {results.map((s) => (
->>>>>>> 33586b3c12d9cf297ceb385cbc6806f56dbcd155
                     <ScoreCard
                         key={s.category}
                         category={s.category}
@@ -255,13 +193,12 @@ const ResultsView = () => {
                         maxScore={s.maxScore}
                         feedback={s.feedback}
                         color={categoryColorMap[s.category] || "blue"}
-                        icon={categoryIconMap[s.category] || <MdCode />}
+                        icon={categoryIconMap[s.category] || <MdCode className="h-6 w-6" />}
                     />
                 ))}
             </div>
 
-
-            {/* ── Proctoring Summary ── */}
+            {/* Proctoring Summary */}
             <div className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-md dark:border-white/10 dark:bg-navy-800">
                 <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-white/10">
                     <div className="flex items-center gap-2">
@@ -287,7 +224,7 @@ const ResultsView = () => {
                         </p>
                     ) : (
                         <ul className="space-y-2">
-                            {cameraAlerts.map((alert, i) => (
+                            {cameraAlerts.map((alert: string, i: number) => (
                                 <li key={i} className="flex items-start gap-2 text-sm text-red-500 dark:text-red-400">
                                     <MdWarning className="mt-0.5 h-4 w-4 shrink-0" />
                                     <span>{alert}</span>
