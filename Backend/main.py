@@ -74,7 +74,7 @@ async def upload_resume(file: UploadFile = File(...)):
         loop = asyncio.get_event_loop()
         analysis_result = await loop.run_in_executor(None, analyze_resume, extracted_resume_text)
 
-        if not analysis_result.get("is_valid", True):
+        if not analysis_result.get("is_valid", False):
             raise HTTPException(
                 status_code=400,
                 detail="This document does not appear to be a resume. Please upload a valid resume.",

@@ -1,6 +1,5 @@
 import React from "react";
 import Card from "components/card";
-import Progress from "components/progress";
 
 interface ScoreCardProps {
     category: string;
@@ -58,7 +57,19 @@ const ScoreCard: React.FC<ScoreCardProps> = ({
                 </div>
             </div>
 
-            <Progress value={percentage} color={color} />
+            {/* Progress bar */}
+            <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-navy-700">
+                <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                        percentage >= 80
+                            ? "bg-green-500"
+                            : percentage >= 60
+                            ? "bg-yellow-500"
+                            : "bg-red-500"
+                    }`}
+                    style={{ width: `${Math.min(percentage, 100)}%` }}
+                />
+            </div>
 
             <p className="mt-4 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
                 {feedback}

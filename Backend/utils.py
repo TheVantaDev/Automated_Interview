@@ -57,23 +57,55 @@ def _chat(prompt: str) -> str:
 
 # ─── Resume analysis ──────────────────────────────────────────────────────────
 
-def analyze_resume(text: str) -> dict:
-    """Validate resume, extract skills, generate 7-8 tailored interview questions."""
+def _is_resume(text: str) -> bool:
+    """
+    Step 1: Dedicated yes/no classification call.
+    Ask a single, focused question so the LLM has no room to get confused.
+    """
+    prompt = f"""You are a document classifier. Your ONLY job is to decide if the document below is a professional resume or CV.
+
+A resume/CV typically contains:
+- A person's name and contact information
+- Work experience / employment history
+- Education background
+- Skills section
+- Projects or certifications
+
+A NON-resume is anything else: essays, articles, random text, invoices, legal documents, stories, etc.
+
+Document (first 2000 characters):
+{text[:2000]}
+
+Respond with ONLY one word: YES if it is a resume/CV, or NO if it is not. Do not add any explanation."""
+    try:
+        raw = _chat(prompt).strip().upper()
+        print(f"[_is_resume] classification response: '{raw}'")
+        # Accept YES even if the LLM adds a tiny bit of surrounding text
+        return raw.startswith("YES")
+    except Exception as e:
+        print(f"[_is_resume] error: {e}")
+        # On error, fail CLOSED — do not pass unknown documents through
+        return False
+
+
+def _generate_questions_and_skills(text: str) -> dict:
+    """
+    Step 2: Only called after the document is confirmed to be a resume.
+    Extracts skills and generates interview questions.
+    """
     prompt = f"""You are an expert technical recruiter and interviewer.
-Analyze the document below and return ONLY a JSON object (no markdown, no explanation).
+The document below is a confirmed professional resume. Analyze it and return ONLY a JSON object (no markdown, no explanation).
 
 Tasks:
-1. Decide if this is a valid professional resume/CV/LinkedIn profile.
-2. Extract a list of professional skills.
-3. Generate exactly 7-8 interview questions tailored to the candidate's background.
+1. Extract a list of professional skills from the resume.
+2. Generate exactly 7-8 interview questions tailored to the candidate's background.
    Use a mix of: Technical, Problem-Solving, System Design, Behavioral, Situational, Leadership, Communication.
 
-Document:
+Resume:
 {text[:3000]}
 
 Return this exact JSON structure:
 {{
-  "is_valid": true,
   "skills": ["Skill1", "Skill2"],
   "questions": [
     {{"id": 1, "category": "Technical", "question": "..."}},
@@ -88,16 +120,30 @@ Return this exact JSON structure:
 }}"""
     try:
         raw = _chat(prompt)
-        print(f"[analyze_resume] raw: {raw[:200]}")
+        print(f"[_generate_questions_and_skills] raw: {raw[:200]}")
         parsed = _extract_json_object(raw)
-        if parsed and "questions" in parsed:
-            return parsed
+        if parsed and "questions" in parsed and "skills" in parsed:
+            return {"is_valid": True, **parsed}
     except Exception as e:
-        print(f"[analyze_resume] error: {e}")
-    return _fallback_resume()
+        print(f"[_generate_questions_and_skills] error: {e}")
+    # Only reach here if the LLM gave garbage JSON on a confirmed resume
+    return _fallback_questions()
 
 
-def _fallback_resume() -> dict:
+def analyze_resume(text: str) -> dict:
+    """Two-step resume analysis: validate first, then extract skills and questions."""
+    # Step 1: is this actually a resume?
+    if not _is_resume(text):
+        print("[analyze_resume] Document classified as NOT a resume.")
+        return {"is_valid": False, "skills": [], "questions": []}
+
+    print("[analyze_resume] Document classified as a resume. Generating questions...")
+    # Step 2: extract skills and generate questions
+    return _generate_questions_and_skills(text)
+
+
+def _fallback_questions() -> dict:
+    """Used ONLY when a confirmed resume fails JSON parsing — never for non-resumes."""
     return {
         "is_valid": True,
         "skills": ["Communication", "Problem Solving", "Teamwork"],
