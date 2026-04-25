@@ -80,8 +80,20 @@ Respond with ONLY one word: YES if it is a resume/CV, or NO if it is not. Do not
     try:
         raw = _chat(prompt).strip().upper()
         print(f"[_is_resume] classification response: '{raw}'")
-        # Accept YES even if the LLM adds a tiny bit of surrounding text
-        return raw.startswith("YES")
+        # llama3.1 sometimes adds preamble like "Based on my analysis, YES..."
+        # or wraps the word: "**YES**" — so we search for YES anywhere in the
+        # short response, but only treat it as NO if the response is explicitly
+        # just "NO" or starts with "NO" without YES appearing anywhere.
+        has_yes = "YES" in raw
+        has_no  = raw.startswith("NO") or raw == "NO"
+        if has_yes:
+            return True
+        if has_no:
+            return False
+        # Ambiguous — treat short uncertain responses as valid to avoid
+        # false rejections; log it for debugging.
+        print(f"[_is_resume] ambiguous response, defaulting to True: '{raw}'")
+        return True
     except Exception as e:
         print(f"[_is_resume] error: {e}")
         # On error, fail CLOSED — do not pass unknown documents through
